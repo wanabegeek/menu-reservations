@@ -38,7 +38,8 @@
       <label>Time<input id="res_time" type="time" /></label>
     </div>
     <div style="margin-top:10px">
-      <button id="btn-build" class="btn-dark">Build Guest Forms</button>
+      <!-- Inline handlers ensure clicks work even if scripts move -->
+      <button id="btn-build" class="btn-dark" onclick="window.buildGuestForms && window.buildGuestForms()">Build Guest Forms</button>
     </div>
     <p class="muted" style="margin-top:8px">Each person must choose from at least <strong>two</strong> sections (starter/main/dessert) and at most one per section.</p>
   </div>
@@ -46,13 +47,18 @@
   <div id="guests"></div>
 
   <div class="card">
-    <button id="btn-submit" class="btn-red">Submit</button>
+    <button id="btn-submit" class="btn-red" onclick="window.submitReservation && window.submitReservation()">Submit</button>
   </div>
 
 </main>
 
-<script>
+<script defer>
+// Expose a tiny status so you know JS is alive
 (function(){
+  const statusEl = document.getElementById('status');
+  function setStatus(t){ if(statusEl) statusEl.textContent = t; }
+  setStatus('initialising…');
+
   // ---- CONFIG: Your Apps Script Web App URL (JSONP-enabled) ----
   const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
 
@@ -62,10 +68,6 @@
   const guestsEl = document.getElementById('guests');
   function uid(){ return 'r'+Math.random().toString(36).slice(2)+Date.now(); }
   function todayStr(){ return new Date().toISOString().slice(0,10); }
-
-  // Status indicator
-  const statusEl = document.getElementById('status');
-  function setStatus(txt){ if(statusEl) statusEl.textContent = txt; }
 
   // ---- Local store (fallback) ----
   const store = {
@@ -83,28 +85,47 @@
     dessert:["","Xmas Pudding","Gateaux","Vegan Tart"]
   };
 
-  // ---- Build dynamic guest cards ----
-  function buildGuestForms(){
-    const n = Math.max(1, parseInt($('#res_people')?.value || '1'));
-    guestsEl.innerHTML='';
-    for(let i=0;i<n;i++){
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `
-        <h4>Person ${i+1}</h4>
-        <div class="row row-5">
-          <label>Name<input class="person-name" placeholder="Full name" /></label>
-          <label>Starter<select class="sel-starter">${DISHES.starter.map(o=>`<option>${o}</option>`).join('')}</select></label>
-          <label>Main<select class="sel-main">${DISHES.main.map(o=>`<option>${o}</option>`).join('')}</select></label>
-          <label>Dessert<select class="sel-dessert">${DISHES.dessert.map(o=>`<option>${o}</option>`).join('')}</select></label>
-          <label>Allergies / Dietary<input class="person-notes" placeholder="e.g., nuts, gluten-free" /></label>
-        </div>`;
-      guestsEl.appendChild(card);
-    }
-    alert(`Built ${n} guest form(s)`);
+  // ---- JSONP helpers (avoid CORS) ----
+  function jsonp(url){
+    return new Promise((resolve)=>{
+      const cb = 'jsonp_cb_' + Math.random().toString(36).slice(2);
+      window[cb] = (data)=>{ try{ resolve(data); } finally { delete window[cb]; s.remove(); } };
+      const s = document.createElement('script');
+      s.src = url + (url.includes('?')?'&':'?') + 'callback=' + cb;
+      s.onerror = ()=>{ delete window[cb]; s.remove(); resolve({ ok:false, error:'JSONP failed' }); };
+      document.body.appendChild(s);
+    });
   }
 
-  // ---- Collect & validate ----
+  async function serverCreate(res){
+    if(!ENDPOINT) return { ok:false, error:'Endpoint not configured' };
+    const url = ENDPOINT + '?action=create&payload=' + encodeURIComponent(JSON.stringify(res));
+    return await jsonp(url);
+  }
+
+  // ---- Core functions (GLOBAL) ----
+  window.buildGuestForms = function buildGuestForms(){
+    try{
+      const n = Math.max(1, parseInt($('#res_people')?.value || '1'));
+      guestsEl.innerHTML='';
+      for(let i=0;i<n;i++){
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <h4>Person ${i+1}</h4>
+          <div class="row row-5">
+            <label>Name<input class="person-name" placeholder="Full name" /></label>
+            <label>Starter<select class="sel-starter">${DISHES.starter.map(o=>`<option>${o}</option>`).join('')}</select></label>
+            <label>Main<select class="sel-main">${DISHES.main.map(o=>`<option>${o}</option>`).join('')}</select></label>
+            <label>Dessert<select class="sel-dessert">${DISHES.dessert.map(o=>`<option>${o}</option>`).join('')}</select></label>
+            <label>Allergies / Dietary<input class="person-notes" placeholder="e.g., nuts, gluten-free" /></label>
+          </div>`;
+        guestsEl.appendChild(card);
+      }
+      alert(`Built ${n} guest form(s)`);
+    }catch(err){ alert('Error building forms: '+err); }
+  }
+
   function collectReservation(){
     const reservationName = $('#res_name')?.value.trim() || '';
     const contact = $('#res_contact')?.value.trim() || '';
@@ -140,56 +161,38 @@
     return errs;
   }
 
-  // ---- JSONP helpers (avoid CORS) ----
-  function jsonp(url){
-    return new Promise((resolve)=>{
-      const cb = 'jsonp_cb_' + Math.random().toString(36).slice(2);
-      window[cb] = (data)=>{ try{ resolve(data); } finally { delete window[cb]; s.remove(); } };
-      const s = document.createElement('script');
-      s.src = url + (url.includes('?')?'&':'?') + 'callback=' + cb;
-      s.onerror = ()=>{ delete window[cb]; s.remove(); resolve({ ok:false, error:'JSONP failed' }); };
-      document.body.appendChild(s);
-    });
-  }
-
-  async function serverCreate(res){
-    if(!ENDPOINT) return { ok:false, error:'Endpoint not configured' };
-    const url = ENDPOINT + '?action=create&payload=' + encodeURIComponent(JSON.stringify(res));
-    return await jsonp(url);
-  }
-
-  // ---- Event delegation: works even if scripts load early/late ----
-  document.addEventListener('click', async (e)=>{
-    const btn = e.target.closest('button'); if(!btn) return;
-    if(btn.id === 'btn-build'){
-      try{ buildGuestForms(); }catch(err){ alert('Error building forms: '+err); }
-    }
-    if(btn.id === 'btn-submit'){
-      try{
-        const res = collectReservation();
-        const errs = validate(res);
-        if(errs.length){ alert('Please fix the following:
+  window.submitReservation = async function submitReservation(){
+    try{
+      const res = collectReservation();
+      const errs = validate(res);
+      if(errs.length){ alert('Please fix the following:
 
 '+errs.join('
 ')); return; }
-        store.upsert(res); // local backup
-        const ack = await serverCreate(res);
-        if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id)); }
-        else { alert('Saved locally. Could not submit to server right now.'); console.warn('Server error:', ack); }
-      }catch(err){ alert('Submit failed: ' + err); }
-    }
+      // Local backup
+      store.upsert(res);
+      // Server submit
+      const ack = await serverCreate(res);
+      if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id)); }
+      else { alert('Saved locally. Could not submit to server right now.'); console.warn('Server error:', ack); }
+    }catch(err){ alert('Submit failed: ' + err); }
+  }
+
+  // Fallback delegated binding (works even without inline)
+  document.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button'); if(!btn) return;
+    if(btn.id==='btn-build'){ window.buildGuestForms(); }
+    if(btn.id==='btn-submit'){ window.submitReservation(); }
   });
 
-  // ---- Init (run whether DOM is ready or already loaded) ----
+  // Init
   function init(){
-    try{
-      const dateEl = document.getElementById('res_date');
-      if(dateEl && !dateEl.value) dateEl.value = todayStr();
-      setStatus('ready');
-      console.log('[menu-reservations] init complete');
-    }catch(err){ console.error(err); }
+    const dateEl = document.getElementById('res_date');
+    if(dateEl && !dateEl.value) dateEl.value = todayStr();
+    setStatus('ready');
+    console.log('[menu-reservations] init complete');
   }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
 
   // Surface JS errors while testing
   window.addEventListener('error', (e)=>{ console.error('JS error:', e?.error || e); });
