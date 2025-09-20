@@ -52,24 +52,18 @@
 
 </main>
 
-<script defer>
-// Expose a tiny status so you know JS is alive
+<script>
 (function(){
-  const statusEl = document.getElementById('status');
-  function setStatus(t){ if(statusEl) statusEl.textContent = t; }
-  setStatus('initialising…');
+  // Point to the Worker, NOT Apps Script directly:
+  const ENDPOINT = 'https://menu-reservations-worker.<your-subdomain>.workers.dev';
 
-  // ---- CONFIG: Your Apps Script Web App URL (JSONP-enabled) ----
-  const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
-
-  // ---- Utilities ----
   const $ = (s,c=document)=>c.querySelector(s);
   const $$ = (s,c=document)=>Array.from(c.querySelectorAll(s));
   const guestsEl = document.getElementById('guests');
+
   function uid(){ return 'r'+Math.random().toString(36).slice(2)+Date.now(); }
   function todayStr(){ return new Date().toISOString().slice(0,10); }
 
-  // ---- Local store (fallback) ----
   const store = {
     key:'reservations_v1',
     all(){ try{return JSON.parse(localStorage.getItem(this.key)||'[]')}catch(_){return[]} },
@@ -78,60 +72,38 @@
       if(i>-1) list[i]=res; else list.push(res); this.save(list); return res.id; }
   };
 
-  // ---- Menu options ----
   const DISHES = {
     starter:["","Soup","Salmon","Antipasto"],
     main:["","Turkey","Haddock","Beef Ragu","Aubergine"],
     dessert:["","Xmas Pudding","Gateaux","Vegan Tart"]
   };
 
-  // ---- JSONP helpers (avoid CORS) ----
-  function jsonp(url){
-    return new Promise((resolve)=>{
-      const cb = 'jsonp_cb_' + Math.random().toString(36).slice(2);
-      window[cb] = (data)=>{ try{ resolve(data); } finally { delete window[cb]; s.remove(); } };
-      const s = document.createElement('script');
-      s.src = url + (url.includes('?')?'&':'?') + 'callback=' + cb;
-      s.onerror = ()=>{ delete window[cb]; s.remove(); resolve({ ok:false, error:'JSONP failed' }); };
-      document.body.appendChild(s);
-    });
-  }
-
-  async function serverCreate(res){
-    if(!ENDPOINT) return { ok:false, error:'Endpoint not configured' };
-    const url = ENDPOINT + '?action=create&payload=' + encodeURIComponent(JSON.stringify(res));
-    return await jsonp(url);
-  }
-
-  // ---- Core functions (GLOBAL) ----
-  window.buildGuestForms = function buildGuestForms(){
-    try{
-      const n = Math.max(1, parseInt($('#res_people')?.value || '1'));
-      guestsEl.innerHTML='';
-      for(let i=0;i<n;i++){
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.innerHTML = `
-          <h4>Person ${i+1}</h4>
-          <div class="row row-5">
-            <label>Name<input class="person-name" placeholder="Full name" /></label>
-            <label>Starter<select class="sel-starter">${DISHES.starter.map(o=>`<option>${o}</option>`).join('')}</select></label>
-            <label>Main<select class="sel-main">${DISHES.main.map(o=>`<option>${o}</option>`).join('')}</select></label>
-            <label>Dessert<select class="sel-dessert">${DISHES.dessert.map(o=>`<option>${o}</option>`).join('')}</select></label>
-            <label>Allergies / Dietary<input class="person-notes" placeholder="e.g., nuts, gluten-free" /></label>
-          </div>`;
-        guestsEl.appendChild(card);
-      }
-      alert(`Built ${n} guest form(s)`);
-    }catch(err){ alert('Error building forms: '+err); }
+  function buildGuestForms(){
+    const n = Math.max(1, parseInt($('#res_people').value || '1'));
+    guestsEl.innerHTML='';
+    for(let i=0;i<n;i++){
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <h4>Person ${i+1}</h4>
+        <div class="row row-5">
+          <label>Name<input class="person-name" placeholder="Full name" /></label>
+          <label>Starter<select class="sel-starter">${DISHES.starter.map(o=>`<option>${o}</option>`).join('')}</select></label>
+          <label>Main<select class="sel-main">${DISHES.main.map(o=>`<option>${o}</option>`).join('')}</select></label>
+          <label>Dessert<select class="sel-dessert">${DISHES.dessert.map(o=>`<option>${o}</option>`).join('')}</select></label>
+          <label>Allergies / Dietary<input class="person-notes" placeholder="e.g., nuts, gluten-free" /></label>
+        </div>`;
+      guestsEl.appendChild(card);
+    }
+    alert(`Built ${n} guest form(s)`);
   }
 
   function collectReservation(){
-    const reservationName = $('#res_name')?.value.trim() || '';
-    const contact = $('#res_contact')?.value.trim() || '';
-    const date = $('#res_date')?.value || '';
-    const time = $('#res_time')?.value || '';
-    const people = parseInt($('#res_people')?.value || '1');
+    const reservationName = $('#res_name').value.trim();
+    const contact = $('#res_contact').value.trim();
+    const date = $('#res_date').value;
+    const time = $('#res_time').value;
+    const people = parseInt($('#res_people').value || '1');
     const guests = $$('.card', guestsEl).map(card=>{
       const q = sel => card.querySelector(sel)?.value || '';
       return {
@@ -161,42 +133,37 @@
     return errs;
   }
 
-  window.submitReservation = async function submitReservation(){
-    try{
+  // ---- Server calls via the Worker (CORS headers added there) ----
+  async function serverCreate(res){
+    const r = await fetch(ENDPOINT, {
+      method:'POST',
+      headers:{ 'Content-Type':'text/plain' }, // keep it 'simple'
+      body: JSON.stringify({ action:'create', reservation: res })
+    });
+    // If the Worker is set, this will be readable
+    return await r.json();
+  }
+
+  // Bind after DOM ready
+  function bind(){
+    document.getElementById('res_date').value ||= todayStr();
+    document.getElementById('btn-build').addEventListener('click', buildGuestForms);
+    document.getElementById('btn-submit').addEventListener('click', async ()=>{
       const res = collectReservation();
       const errs = validate(res);
-      if(errs.length){ alert('Please fix the following:
-
-'+errs.join('
-')); return; }
-      // Local backup
+      if(errs.length){ alert('Please fix the following:\n\n'+errs.join('\n')); return; }
       store.upsert(res);
-      // Server submit
-      const ack = await serverCreate(res);
-      if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id)); }
-      else { alert('Saved locally. Could not submit to server right now.'); console.warn('Server error:', ack); }
-    }catch(err){ alert('Submit failed: ' + err); }
+      try{
+        const ack = await serverCreate(res);
+        if(ack && ack.ok) alert('Submitted to server. ID: ' + (ack.id || res.id));
+        else alert('Saved locally. Could not submit to server right now.');
+      }catch(err){
+        alert('Saved locally. Could not submit to server right now.');
+        console.warn(err);
+      }
+    });
   }
-
-  // Fallback delegated binding (works even without inline)
-  document.addEventListener('click', (e)=>{
-    const btn = e.target.closest('button'); if(!btn) return;
-    if(btn.id==='btn-build'){ window.buildGuestForms(); }
-    if(btn.id==='btn-submit'){ window.submitReservation(); }
-  });
-
-  // Init
-  function init(){
-    const dateEl = document.getElementById('res_date');
-    if(dateEl && !dateEl.value) dateEl.value = todayStr();
-    setStatus('ready');
-    console.log('[menu-reservations] init complete');
-  }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
-
-  // Surface JS errors while testing
-  window.addEventListener('error', (e)=>{ console.error('JS error:', e?.error || e); });
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();
 </script>
-</body>
-</html>
+
