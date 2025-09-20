@@ -1,507 +1,178 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Menu Reservation & Orders</title>
-  <!-- Tailwind (CDN) for quick styling on GoDaddy HTML block -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    html{scroll-behavior:smooth}
-    .shadow-soft{box-shadow:0 10px 30px rgba(0,0,0,.08),0 4px 12px rgba(0,0,0,.06)}
-    /* Printable placecards */
-    @media print{
-      body.print-cards *:not(.cards-print,.cards-print *){ display:none !important; }
-      .cards-print{ display:block !important; }
-      @page{ size:A4; margin:10mm; }
-      .sheet{ display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:calc( (100vh - 20mm) / 4 ); gap:6mm; }
-      .card{ border:1px solid #000; position:relative; }
-      .card .top-half{ position:absolute; inset:0 0 50% 0; }
-      .card .bottom-half{ position:absolute; inset:50% 0 0 0; padding:8mm; display:flex; flex-direction:column; justify-content:center; }
-      .page-break{ page-break-after:always; }
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Menu Reservations</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:10px 16px}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:12px}
+  label{font-size:14px;display:block;margin-bottom:8px}
+  input,select{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px}
+  .row{display:grid;gap:12px}
+  @media(min-width:720px){.row-3{grid-template-columns:1fr 1fr 1fr}.row-2{grid-template-columns:1fr 1fr}.row-5{grid-template-columns:1fr 1fr 1fr 1fr 1fr}}
+  button{cursor:pointer;border:0;border-radius:12px;padding:10px 16px}
+  .btn-dark{background:#0f172a;color:#fff}
+  .btn-red{background:#e11d48;color:#fff}
+  .muted{color:#64748b;font-size:12px}
+</style>
 </head>
-<body class="bg-slate-50 text-slate-800">
-  <header class="sticky top-0 z-40 bg-white/90 backdrop-blur border-b border-slate-200">
-    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
-      <div class="w-9 h-9 rounded-2xl bg-rose-600 grid place-items-center text-white font-bold">R</div>
-      <div class="flex-1">
-        <h1 class="text-lg font-semibold">Menu Reservation & Orders</h1>
-        <p class="text-xs text-slate-500">Collect orders for multiple people · Validate 2–3 courses · Views for Calendar, Totals, and Detailed list · Print placecards</p>
-      </div>
-      <nav class="flex gap-2 text-sm">
-        <button data-tab="#tab-form" class="px-3 py-2 rounded-xl bg-slate-900 text-white">Form</button>
-        <button data-tab="#tab-calendar" class="px-3 py-2 rounded-xl bg-slate-100">Calendar</button>
-        <button data-tab="#tab-totals" class="px-3 py-2 rounded-xl bg-slate-100">Daily Totals</button>
-        <button data-tab="#tab-detail" class="px-3 py-2 rounded-xl bg-slate-100">Detailed View</button>
-        <button id="btn-refresh" class="px-3 py-2 rounded-xl bg-slate-100 border">Refresh</button>
-      </nav>
+<body>
+<header><div class="wrap"><strong>Menu Reservation & Orders</strong></div></header>
+<main class="wrap">
+
+  <div class="card">
+    <h3>Reservation</h3>
+    <div class="row row-3">
+      <label>Reservation Name<input id="res_name" placeholder="Smith Family" /></label>
+      <label>Contact Details<input id="res_contact" placeholder="email or phone" /></label>
+      <label>Number of People<input id="res_people" type="number" min="1" value="1" /></label>
     </div>
-  </header>
+    <div class="row row-2" style="margin-top:8px">
+      <label>Date<input id="res_date" type="date" /></label>
+      <label>Time<input id="res_time" type="time" /></label>
+    </div>
+    <div style="margin-top:10px">
+      <button id="btn-build" class="btn-dark">Build Guest Forms</button>
+    </div>
+    <p class="muted" style="margin-top:8px">Each person must choose from at least <strong>two</strong> sections (starter/main/dessert) and at most one per section.</p>
+  </div>
 
-  <main class="max-w-6xl mx-auto px-4 py-6">
-    <!-- TABS -->
-    <section id="tab-form" class="tab">
-      <div class="grid md:grid-cols-2 gap-4">
-        <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-soft">
-          <h2 class="text-base font-semibold mb-3">Reservation</h2>
-          <div class="grid gap-3">
-            <label class="text-sm">Reservation Name
-              <input id="res_name" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="e.g., Smith Family" />
-            </label>
-            <label class="text-sm">Contact Details
-              <input id="res_contact" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" placeholder="Email or phone" />
-            </label>
-            <div class="grid grid-cols-3 gap-3">
-              <label class="text-sm">Number of People
-                <input id="res_people" type="number" min="1" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" value="1" />
-              </label>
-              <label class="text-sm">Date
-                <input id="res_date" type="date" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
-              </label>
-              <label class="text-sm">Time
-                <input id="res_time" type="time" class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2" />
-              </label>
-            </div>
-            <button id="btn-build" class="mt-1 px-3 py-2 rounded-xl bg-slate-900 text-white w-max">Build Guest Forms</button>
-          </div>
-        </div>
-        <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-soft">
-          <h2 class="text-base font-semibold mb-2">Menu</h2>
-          <div class="grid md:grid-cols-3 gap-3 text-sm">
-            <div>
-              <p class="font-medium">Starters (choose 1)</p>
-              <ul class="list-disc pl-4 text-slate-600"><li>Soup</li><li>Salmon</li><li>Antipasto</li></ul>
-            </div>
-            <div>
-              <p class="font-medium">Mains (choose 1)</p>
-              <ul class="list-disc pl-4 text-slate-600"><li>Turkey</li><li>Haddock</li><li>Beef Ragu</li><li>Aubergine</li></ul>
-            </div>
-            <div>
-              <p class="font-medium">Desserts (choose 1)</p>
-              <ul class="list-disc pl-4 text-slate-600"><li>Xmas Pudding</li><li>Gateaux</li><li>Vegan Tart</li></ul>
-            </div>
-          </div>
-          <p class="text-xs text-slate-600 mt-2">Rule: Each person must choose from at least <span class="font-semibold">two</span> sections (starter/main/dessert), and at most one choice per section (max 3 courses).</p>
-        </div>
-      </div>
+  <div id="guests"></div>
 
-      <div id="guests" class="mt-6 grid gap-4"></div>
+  <div class="card">
+    <button id="btn-submit" class="btn-red">Submit</button>
+  </div>
 
-      <div class="mt-6 flex flex-wrap gap-2">
-        <button id="btn-submit" class="px-4 py-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-medium shadow-soft">Submit</button>
-        <button id="btn-reset" class="px-4 py-3 rounded-2xl bg-white border border-slate-300">Reset</button>
-      </div>
-    </section>
+</main>
 
-    <section id="tab-calendar" class="tab hidden">
-      <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-soft">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-base font-semibold">Calendar</h2>
-          <div class="flex gap-2 items-center">
-            <button id="cal-prev" class="px-2 py-1 rounded-lg border">Prev</button>
-            <span id="cal-title" class="min-w-[10ch] text-center"></span>
-            <button id="cal-next" class="px-2 py-1 rounded-lg border">Next</button>
-          </div>
-        </div>
-        <div id="calendar" class="grid grid-cols-7 gap-2 text-sm"></div>
-        <p class="text-xs text-slate-500 mt-2">Each entry shows: Reservation Name — People — Time.</p>
-      </div>
-    </section>
+<script>
+(function(){
+  // ---- CONFIG: Your Apps Script Web App URL (JSONP-enabled) ----
+  const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
 
-    <section id="tab-totals" class="tab hidden">
-      <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-soft">
-        <h2 class="text-base font-semibold mb-3">Daily Totals</h2>
-        <div class="flex flex-wrap items-center gap-2 mb-3">
-          <label class="text-sm">Pick a date
-            <input id="totals-date" type="date" class="mt-1 rounded-lg border border-slate-300 px-3 py-2" />
-          </label>
-          <button id="btn-calc-totals" class="mt-5 px-3 py-2 rounded-xl bg-slate-900 text-white">Calculate</button>
-        </div>
-        <div id="totals-output" class="grid md:grid-cols-2 gap-4"></div>
-      </div>
-    </section>
+  // ---- Utilities ----
+  const $ = (s,c=document)=>c.querySelector(s);
+  const $$ = (s,c=document)=>Array.from(c.querySelectorAll(s));
+  const guestsEl = document.getElementById('guests');
+  function uid(){ return 'r'+Math.random().toString(36).slice(2)+Date.now(); }
+  function todayStr(){ return new Date().toISOString().slice(0,10); }
 
-    <section id="tab-detail" class="tab hidden">
-      <div class="p-4 bg-white rounded-2xl border border-slate-200 shadow-soft">
-        <div class="flex items-center justify-between">
-          <h2 class="text-base font-semibold">Detailed Reservation View</h2>
-          <div class="flex gap-2 items-center">
-            <select id="detail-select" class="rounded-lg border border-slate-300 px-3 py-2 text-sm"></select>
-            <button id="btn-print-detail" class="px-3 py-2 rounded-xl bg-slate-900 text-white text-sm">Print Table</button>
-            <button id="btn-print-cards" class="px-3 py-2 rounded-xl bg-rose-600 text-white text-sm">Print Placecards</button>
-          </div>
-        </div>
-        <div id="detail-table-wrapper" class="mt-4 overflow-x-auto"></div>
-      </div>
-    </section>
-  </main>
+  // ---- Local store (fallback) ----
+  const store = {
+    key:'reservations_v1',
+    all(){ try{return JSON.parse(localStorage.getItem(this.key)||'[]')}catch(_){return[]} },
+    save(list){ localStorage.setItem(this.key, JSON.stringify(list)); },
+    upsert(res){ const list=this.all(); const i=list.findIndex(x=>x.id===res.id);
+      if(i>-1) list[i]=res; else list.push(res); this.save(list); return res.id; }
+  };
 
-  <!-- Placecards print container (hidden on screen) -->
-  <div id="cards-root" class="cards-print hidden"></div>
+  // ---- Menu options ----
+  const DISHES = {
+    starter:["","Soup","Salmon","Antipasto"],
+    main:["","Turkey","Haddock","Beef Ragu","Aubergine"],
+    dessert:["","Xmas Pudding","Gateaux","Vegan Tart"]
+  };
 
-  <script>
-    // ------- Utilities & Data ---------
-    const DISHES = {
-      starter: ["","Soup","Salmon","Antipasto"],
-      main: ["","Turkey","Haddock","Beef Ragu","Aubergine"],
-      dessert: ["","Xmas Pudding","Gateaux","Vegan Tart"],
-    };
-
-    function uid(){ return 'r'+Math.random().toString(36).slice(2)+Date.now(); }
-    function todayStr(){ return new Date().toISOString().slice(0,10); }
-
-    const store = {
-      key: 'reservations_v1',
-      all(){ return JSON.parse(localStorage.getItem(this.key)||'[]'); },
-      save(list){ localStorage.setItem(this.key, JSON.stringify(list)); },
-      upsert(res){
-        const list = this.all();
-        const i = list.findIndex(x=>x.id===res.id);
-        if(i>-1) list[i]=res; else list.push(res);
-        this.save(list); return res.id;
-      }
-    };
-
-    // --- Remote endpoint config (Google Apps Script) ---
-    // Replace the placeholder below with your deployed Apps Script Web App URL.
-    const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
-
-    async function serverCreate(reservation){
-      // JSONP to avoid CORS limits on Apps Script
-      if(!ENDPOINT || ENDPOINT.includes('PASTE_APPS_SCRIPT_URL_HERE')) return { ok:false, error:'Endpoint not configured' };
-      return new Promise((resolve, reject)=>{
-        const cb = 'jsonp_cb_' + Math.random().toString(36).slice(2);
-        window[cb] = (data)=>{ try{ resolve(data); } finally { delete window[cb]; script.remove(); } };
-        const url = ENDPOINT + '?action=create' + '&payload=' + encodeURIComponent(JSON.stringify(reservation)) + '&callback=' + cb;
-        const script = document.createElement('script');
-        script.src = url; script.onerror = ()=>{ delete window[cb]; script.remove(); resolve({ ok:false, error:'JSONP failed' }); };
-        document.body.appendChild(script);
-      });
-    };
-      try{
-        const resp = await fetch(ENDPOINT, {
-          method: 'POST',
-          mode: 'cors',
-          headers: { 'Content-Type': 'text/plain' }, // keep simple request
-          body: JSON.stringify({ action:'create', reservation })
-        });
-        const data = await resp.json();
-        return data;
-      } catch(err){
-        return { ok:false, error:String(err) };
-      }
+  // ---- Build dynamic guest cards ----
+  function buildGuestForms(){
+    const n = Math.max(1, parseInt($('#res_people').value || '1'));
+    guestsEl.innerHTML='';
+    for(let i=0;i<n;i++){
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <h4>Person ${i+1}</h4>
+        <div class="row row-5">
+          <label>Name<input class="person-name" placeholder="Full name" /></label>
+          <label>Starter<select class="sel-starter">${DISHES.starter.map(o=>`<option>${o}</option>`).join('')}</select></label>
+          <label>Main<select class="sel-main">${DISHES.main.map(o=>`<option>${o}</option>`).join('')}</select></label>
+          <label>Dessert<select class="sel-dessert">${DISHES.dessert.map(o=>`<option>${o}</option>`).join('')}</select></label>
+          <label>Allergies / Dietary<input class="person-notes" placeholder="e.g., nuts, gluten-free" /></label>
+        </div>`;
+      guestsEl.appendChild(card);
     }
+    alert(`Built ${n} guest form(s)`);
+  }
 
-    async function serverListAll(){
-      if(!ENDPOINT || ENDPOINT.includes('PASTE_APPS_SCRIPT_URL_HERE')) return [];
-      return new Promise((resolve)=>{
-        const cb = 'jsonp_cb_' + Math.random().toString(36).slice(2);
-        window[cb] = (data)=>{ try{ resolve(data && data.reservations || []); } finally { delete window[cb]; script.remove(); } };
-        const url = ENDPOINT + '?action=listAll&callback=' + cb;
-        const script = document.createElement('script');
-        script.src = url; script.onerror = ()=>{ delete window[cb]; script.remove(); resolve([]); };
-        document.body.appendChild(script);
-      });
-    } catch(err){
-        return [];
-      }
-    }));
-      return data.reservations || [];
-    }
-
-    async function syncFromServer(){
-      const remote = await serverListAll();
-      if(!remote.length) return;
-      const local = store.all();
-      const byId = Object.fromEntries(local.map(x=>[x.id,x]));
-      remote.forEach(r=>{ byId[r.id] = r; });
-      store.save(Object.values(byId));
-    }
-
-    // ------- Tabs ---------
-    document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>{
-      document.querySelectorAll('.tab').forEach(t=>t.classList.add('hidden'));
-      document.querySelector(btn.dataset.tab).classList.remove('hidden');
-    }));
-
-    // ------- Build Guests UI ---------
-    const guestsEl = document.getElementById('guests');
-    /* listener via delegated click below */
-    function buildGuestForms(){
-      const n = Math.max(1, parseInt(document.getElementById('res_people').value||'1'));
-      guestsEl.innerHTML = '';
-      for(let i=0;i<n;i++){
-        const idx = i+1;
-        const card = document.createElement('div');
-        card.className = 'p-4 bg-white rounded-2xl border border-slate-200 shadow-soft';
-        card.innerHTML = `
-          <h3 class="font-semibold mb-3">Person ${idx}</h3>
-          <div class="grid md:grid-cols-5 gap-3 items-end">
-            <label class="text-sm md:col-span-1">Name
-              <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 person-name" placeholder="Full name" />
-            </label>
-            <label class="text-sm">Starter
-              <select class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 sel-starter">${DISHES.starter.map(o=>`<option>${o}</option>`).join('')}</select>
-            </label>
-            <label class="text-sm">Main
-              <select class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 sel-main">${DISHES.main.map(o=>`<option>${o}</option>`).join('')}</select>
-            </label>
-            <label class="text-sm">Dessert
-              <select class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 sel-dessert">${DISHES.dessert.map(o=>`<option>${o}</option>`).join('')}</select>
-            </label>
-            <label class="text-sm md:col-span-2">Allergies / Dietary
-              <input class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 person-notes" placeholder="e.g., nuts, gluten‑free" />
-            </label>
-          </div>`;
-        guestsEl.appendChild(card);
-      }
-      window.scrollTo({top:document.body.scrollHeight, behavior:'smooth'});
-    }
-
-    // ------- Validation ---------
-    function collectReservationFromForm(){
-      const name = document.getElementById('res_name').value.trim();
-      const contact = document.getElementById('res_contact').value.trim();
-      const date = document.getElementById('res_date').value;
-      const time = document.getElementById('res_time').value;
-      const people = parseInt(document.getElementById('res_people').value||'1');
-      const guests = Array.from(guestsEl.querySelectorAll('.p-4')).map(card=>{
-        const get = sel => card.querySelector(sel)?.value || '';
-        return {
-          name: get('.person-name').trim(),
-          starter: get('.sel-starter'),
-          main: get('.sel-main'),
-          dessert: get('.sel-dessert'),
-          notes: get('.person-notes').trim(),
-        };
-      });
+  // ---- Collect & validate ----
+  function collectReservation(){
+    const reservationName = $('#res_name').value.trim();
+    const contact = $('#res_contact').value.trim();
+    const date = $('#res_date').value;
+    const time = $('#res_time').value;
+    const people = parseInt($('#res_people').value || '1');
+    const guests = $$('.card', guestsEl).map(card=>{
+      const q = sel => card.querySelector(sel)?.value || '';
       return {
-        id: uid(), reservationName: name, contact, date, time, people,
-        guests, createdAt: new Date().toISOString()
+        name: q('.person-name').trim(),
+        starter: q('.sel-starter'),
+        main: q('.sel-main'),
+        dessert: q('.sel-dessert'),
+        notes: q('.person-notes').trim()
       };
-    }
+    });
+    return { id: uid(), reservationName, contact, date, time, people, guests, createdAt:new Date().toISOString() };
+  }
 
-    function validateReservation(res){
-      const problems = [];
-      if(!res.reservationName) problems.push('Reservation Name is required.');
-      if(!res.date) problems.push('Date is required.');
-      if(!res.time) problems.push('Time is required.');
-      if(!Number.isInteger(res.people) || res.people < 1) problems.push('Number of People must be at least 1.');
-      if(res.guests.length !== res.people) problems.push('Guest forms do not match the number of people. Click "Build Guest Forms" again.');
+  function validate(res){
+    const errs=[];
+    if(!res.reservationName) errs.push('Reservation Name is required.');
+    if(!res.date) errs.push('Date is required.');
+    if(!res.time) errs.push('Time is required.');
+    if(!Number.isInteger(res.people)||res.people<1) errs.push('Number of People must be at least 1.');
+    if(res.guests.length!==res.people) errs.push('Guest forms do not match the number of people. Click "Build Guest Forms" again.');
+    res.guests.forEach((g,i)=>{
+      const count=[g.starter,g.main,g.dessert].filter(Boolean).length;
+      if(!g.name) errs.push(`Person ${i+1}: Name is required.`);
+      if(count<2) errs.push(`Person ${i+1} (${g.name||'Unnamed'}): must choose at least 2 courses.`);
+      if(count>3) errs.push(`Person ${i+1} (${g.name||'Unnamed'}): too many courses.`);
+    });
+    return errs;
+  }
 
-      res.guests.forEach((g, i)=>{
-        const choices = [g.starter, g.main, g.dessert].filter(x=>x && x!=="-");
-        if(!g.name) problems.push(`Person ${i+1}: Name is required.`);
-        if(choices.length < 2) problems.push(`Person ${i+1} (${g.name||'Unnamed'}): must choose at least 2 courses.`);
-        if(choices.length > 3) problems.push(`Person ${i+1} (${g.name||'Unnamed'}): too many courses.`);
-      });
-      return problems;
-    }
+  // ---- JSONP helpers (avoid CORS) ----
+  function jsonp(url){
+    return new Promise((resolve)=>{
+      const cb = 'jsonp_cb_' + Math.random().toString(36).slice(2);
+      window[cb] = (data)=>{ try{ resolve(data); } finally { delete window[cb]; s.remove(); } };
+      const s = document.createElement('script');
+      s.src = url + (url.includes('?')?'&':'?') + 'callback=' + cb;
+      s.onerror = ()=>{ delete window[cb]; s.remove(); resolve({ ok:false, error:'JSONP failed' }); };
+      document.body.appendChild(s);
+    });
+  }
 
-    // ------- Submit (send to Google Sheets endpoint) ---------
+  async function serverCreate(res){
+    if(!ENDPOINT) return { ok:false, error:'Endpoint not configured' };
+    const url = ENDPOINT + '?action=create&payload=' + encodeURIComponent(JSON.stringify(res));
+    return await jsonp(url);
+  }
+
+  // ---- Bind events ----
+  document.addEventListener('DOMContentLoaded', ()=>{
+    const dateEl = document.getElementById('res_date');
+    if(dateEl && !dateEl.value) dateEl.value = todayStr();
+
+    document.getElementById('btn-build').addEventListener('click', buildGuestForms);
+
     document.getElementById('btn-submit').addEventListener('click', async ()=>{
-      const res = collectReservationFromForm();
-      const errs = validateReservation(res);
-      if(errs.length){ alert('Please fix the following:
-
-' + errs.join('
-')); return; }
-
-      // Save locally as backup
-      store.upsert(res);
-
-      // Try server submit
+      const res = collectReservation();
+      const errs = validate(res);
+      if(errs.length){ alert('Please fix the following:\n\n'+errs.join('\n')); return; }
+      store.upsert(res); // local backup
       const ack = await serverCreate(res);
       if(ack && ack.ok){
         alert('Submitted to server. ID: ' + (ack.id || res.id));
       } else {
         alert('Saved locally. Could not submit to server right now.');
-      }
-
-      populateDetailSelect();
-      buildCalendar();
-    });
-
-    // Refresh from server
-    document.getElementById('btn-refresh').addEventListener('click', async ()=>{
-      await syncFromServer();
-      populateDetailSelect();
-      buildCalendar();
-      alert('Data refreshed.');
-    });
-
-    // ------- Detailed View ---------
-    // detail select looked up dynamically when needed
-    function reservationLabel(r){ return `${r.date} ${r.time} — ${r.reservationName} (${r.people})`; }
-    function populateDetailSelect(){
-      const list = store.all().sort((a,b)=>a.date.localeCompare(b.date)||a.time.localeCompare(b.time));
-      detailSelect.innerHTML = list.map(r=>`<option value="${r.id}">${reservationLabel(r)}</option>`).join('');
-      if(list.length){ renderDetailTable(list[0].id); }
-      else { document.getElementById('detail-table-wrapper').innerHTML = '<p class="text-sm text-slate-600">No reservations yet.</p>'; }
-    }
-
-    // delegated change handler added below
-
-    function renderDetailTable(id){
-      const r = store.all().find(x=>x.id===id); if(!r) return;
-      const cols = [
-        {key:'Soup', section:'starter'},{key:'Salmon', section:'starter'},{key:'Antipasto', section:'starter'},
-        {key:'Turkey', section:'main'},{key:'Haddock', section:'main'},{key:'Beef Ragu', section:'main'},{key:'Aubergine', section:'main'},
-        {key:'Xmas Pudding', section:'dessert'},{key:'Gateaux', section:'dessert'},{key:'Vegan Tart', section:'dessert'}
-      ];
-      const thead = `<thead class="bg-slate-100"><tr>
-        <th class="p-2 text-left">Name</th>
-        ${cols.map(c=>`<th class='p-2 whitespace-nowrap text-left'>${c.key}</th>`).join('')}
-        <th class="p-2 text-left">Allergies/Dietary</th>
-      </tr></thead>`;
-      const rows = r.guests.map(g=>{
-        const ticks = cols.map(c=>{
-          const choice = g[c.section];
-          return `<td class='p-2'>${choice===c.key ? '✓' : ''}</td>`;
-        }).join('');
-        return `<tr><td class='p-2 border-t'>${g.name}</td>${ticks}<td class='p-2 border-t'>${g.notes||''}</td></tr>`;
-      }).join('');
-      const table = `<div class='text-sm'><div class='mb-2 font-medium'>${reservationLabel(r)} — Contact: ${r.contact||'-'}</div>
-        <table class='w-full border border-slate-200 rounded-lg'>${thead}<tbody>${rows}</tbody></table></div>`;
-      document.getElementById('detail-table-wrapper').innerHTML = table;
-    }
-
-    // Print detail table
-    // print detail handled by delegated click
-
-    // ------- Placecards Printing ---------
-    function printCards(){
-      const detailSelect = document.getElementById('detail-select');
-      const id = detailSelect && detailSelect.value; const r = store.all().find(x=>x.id===id); if(!r) return alert('No reservation selected');
-      const root = document.getElementById('cards-root');
-      root.innerHTML = '';
-      const perSheet = 8; let count = 0; let sheet = null;
-
-      r.guests.forEach((g)=>{
-        if(count % perSheet === 0){
-          if(sheet) sheet.classList.add('page-break');
-          sheet = document.createElement('div');
-          sheet.className = 'sheet';
-          root.appendChild(sheet);
-        }
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.innerHTML = `
-          <div class="top-half"></div>
-          <div class="bottom-half">
-            <div class="text-base font-bold">${g.name||'Guest'}</div>
-            <div class="mt-1 text-xs">Reservation: ${r.reservationName}</div>
-            <div class="text-xs">${r.date} ${r.time}</div>
-            <div class="mt-2 text-sm">
-              ${g.starter?`<div>Starter: <span class='font-medium'>${g.starter}</span></div>`:''}
-              ${g.main?`<div>Main: <span class='font-medium'>${g.main}</span></div>`:''}
-              ${g.dessert?`<div>Dessert: <span class='font-medium'>${g.dessert}</span></div>`:''}
-              ${g.notes?`<div class='mt-1 text-rose-700'>Allergies: ${g.notes}</div>`:''}
-            </div>
-          </div>`;
-        sheet.appendChild(card); count++;
-      });
-
-      document.body.classList.add('print-cards');
-      root.classList.remove('hidden');
-      window.print();
-      setTimeout(()=>{ document.body.classList.remove('print-cards'); root.classList.add('hidden'); }, 300);
-    }
-
-      document.body.classList.add('print-cards');
-      root.classList.remove('hidden');
-      window.print();
-      setTimeout(()=>{ document.body.classList.remove('print-cards'); root.classList.add('hidden'); }, 300);
-    });
-
-    // ------- Calendar View (simple month grid) ---------
-    const calTitle = document.getElementById('cal-title');
-    const calGrid = document.getElementById('calendar');
-    let calRef = new Date(); calRef.setDate(1);
-
-    function buildCalendar(){
-      const y = calRef.getFullYear(); const m = calRef.getMonth();
-      calTitle.textContent = calRef.toLocaleString(undefined,{month:'long', year:'numeric'});
-      calGrid.innerHTML = '';
-      const firstDay = new Date(y,m,1).getDay(); // 0 Sun...6 Sat
-      const startOffset = (firstDay + 6) % 7; // convert to Mon=0
-      const daysInMonth = new Date(y,m+1,0).getDate();
-
-      const header = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(d=>`<div class='text-center font-medium py-1'>${d}</div>`).join('');
-      calGrid.insertAdjacentHTML('beforeend', header);
-
-      for(let i=0;i<startOffset;i++) calGrid.insertAdjacentHTML('beforeend', `<div class='p-2'></div>`);
-      const list = store.all();
-      for(let d=1; d<=daysInMonth; d++){
-        const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        const dayRes = list.filter(r=>r.date===dateStr);
-        const items = dayRes.map(r=>`<div class='truncate'>• ${r.reservationName} — ${r.people} — ${r.time}</div>`).join('');
-        calGrid.insertAdjacentHTML('beforeend', `
-          <div class='min-h-[96px] p-2 border rounded-lg ${dayRes.length?'bg-emerald-50':'bg-white'}'>
-            <div class='text-xs font-semibold mb-1'>${d}</div>
-            <div class='text-xs space-y-1'>${items||''}</div>
-          </div>`);
-      }
-    }
-
-    buildCalendar();
-      });
-      // ---- Delegated event handlers (robust if GoDaddy moves scripts) ----
-    document.addEventListener('click', async (e)=>{
-      const t = e.target.closest('button,[data-tab]'); if(!t) return;
-      // Tabs
-      if(t.dataset && t.dataset.tab){
-        document.querySelectorAll('.tab').forEach(n=>n.classList.add('hidden'));
-        document.querySelector(t.dataset.tab)?.classList.remove('hidden');
-        return;
-      }
-      switch(t.id){
-        case 'btn-build':
-          buildGuestForms();
-          break;
-        case 'btn-submit':
-          const res = collectReservationFromForm();
-          const errs = validateReservation(res);
-          if(errs.length){ alert('Please fix the following:
-
-' + errs.join('
-')); return; }
-          store.upsert(res);
-          const ack = await serverCreate(res);
-          if(ack && ack.ok) alert('Submitted to server. ID: ' + (ack.id || res.id));
-          else alert('Saved locally. Could not submit to server right now.');
-          populateDetailSelect(); buildCalendar();
-          break;
-        case 'btn-refresh':
-          await syncFromServer(); populateDetailSelect(); buildCalendar(); alert('Data refreshed.');
-          break;
-        case 'btn-print-detail':
-          window.print();
-          break;
-        case 'btn-print-cards':
-          printCards();
-          break;
-        case 'cal-prev':
-          calRef.setMonth(calRef.getMonth()-1); buildCalendar();
-          break;
-        case 'cal-next':
-          calRef.setMonth(calRef.getMonth()+1); buildCalendar();
-          break;
-        case 'btn-calc-totals':
-          calcTotals();
-          break;
+        console.warn('Server error:', ack);
       }
     });
-
-    document.addEventListener('change', (e)=>{
-      if(e.target && e.target.id==='detail-select'){
-        renderDetailTable(e.target.value);
-      }
-    });
-
-  })();
+  });
+})();
 </script>
 </body>
 </html>
