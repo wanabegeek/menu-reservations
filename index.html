@@ -18,9 +18,12 @@
   .btn-red{background:#e11d48;color:#fff}
   .muted{color:#64748b;font-size:12px}
 </style>
+<noscript>
+  <div style="background:#fee2e2;color:#991b1b;padding:12px;text-align:center">This page requires JavaScript.</div>
+</noscript>
 </head>
 <body>
-<header><div class="wrap"><strong>Menu Reservation & Orders</strong></div></header>
+<header><div class="wrap"><strong>Menu Reservation & Orders</strong> <span id="status" class="muted"></span></div></header>
 <main class="wrap">
 
   <div class="card">
@@ -60,6 +63,10 @@
   function uid(){ return 'r'+Math.random().toString(36).slice(2)+Date.now(); }
   function todayStr(){ return new Date().toISOString().slice(0,10); }
 
+  // Status indicator
+  const statusEl = document.getElementById('status');
+  function setStatus(txt){ if(statusEl) statusEl.textContent = txt; }
+
   // ---- Local store (fallback) ----
   const store = {
     key:'reservations_v1',
@@ -78,7 +85,7 @@
 
   // ---- Build dynamic guest cards ----
   function buildGuestForms(){
-    const n = Math.max(1, parseInt($('#res_people').value || '1'));
+    const n = Math.max(1, parseInt($('#res_people')?.value || '1'));
     guestsEl.innerHTML='';
     for(let i=0;i<n;i++){
       const card = document.createElement('div');
@@ -99,11 +106,11 @@
 
   // ---- Collect & validate ----
   function collectReservation(){
-    const reservationName = $('#res_name').value.trim();
-    const contact = $('#res_contact').value.trim();
-    const date = $('#res_date').value;
-    const time = $('#res_time').value;
-    const people = parseInt($('#res_people').value || '1');
+    const reservationName = $('#res_name')?.value.trim() || '';
+    const contact = $('#res_contact')?.value.trim() || '';
+    const date = $('#res_date')?.value || '';
+    const time = $('#res_time')?.value || '';
+    const people = parseInt($('#res_people')?.value || '1');
     const guests = $$('.card', guestsEl).map(card=>{
       const q = sel => card.querySelector(sel)?.value || '';
       return {
@@ -151,27 +158,41 @@
     return await jsonp(url);
   }
 
-  // ---- Bind events ----
-  document.addEventListener('DOMContentLoaded', ()=>{
-    const dateEl = document.getElementById('res_date');
-    if(dateEl && !dateEl.value) dateEl.value = todayStr();
+  // ---- Event delegation: works even if scripts load early/late ----
+  document.addEventListener('click', async (e)=>{
+    const btn = e.target.closest('button'); if(!btn) return;
+    if(btn.id === 'btn-build'){
+      try{ buildGuestForms(); }catch(err){ alert('Error building forms: '+err); }
+    }
+    if(btn.id === 'btn-submit'){
+      try{
+        const res = collectReservation();
+        const errs = validate(res);
+        if(errs.length){ alert('Please fix the following:
 
-    document.getElementById('btn-build').addEventListener('click', buildGuestForms);
-
-    document.getElementById('btn-submit').addEventListener('click', async ()=>{
-      const res = collectReservation();
-      const errs = validate(res);
-      if(errs.length){ alert('Please fix the following:\n\n'+errs.join('\n')); return; }
-      store.upsert(res); // local backup
-      const ack = await serverCreate(res);
-      if(ack && ack.ok){
-        alert('Submitted to server. ID: ' + (ack.id || res.id));
-      } else {
-        alert('Saved locally. Could not submit to server right now.');
-        console.warn('Server error:', ack);
-      }
-    });
+'+errs.join('
+')); return; }
+        store.upsert(res); // local backup
+        const ack = await serverCreate(res);
+        if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id)); }
+        else { alert('Saved locally. Could not submit to server right now.'); console.warn('Server error:', ack); }
+      }catch(err){ alert('Submit failed: ' + err); }
+    }
   });
+
+  // ---- Init (run whether DOM is ready or already loaded) ----
+  function init(){
+    try{
+      const dateEl = document.getElementById('res_date');
+      if(dateEl && !dateEl.value) dateEl.value = todayStr();
+      setStatus('ready');
+      console.log('[menu-reservations] init complete');
+    }catch(err){ console.error(err); }
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+
+  // Surface JS errors while testing
+  window.addEventListener('error', (e)=>{ console.error('JS error:', e?.error || e); });
 })();
 </script>
 </body>
