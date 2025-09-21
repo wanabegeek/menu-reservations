@@ -17,15 +17,17 @@
   .btn-dark{background:#0f172a;color:#fff}
   .btn-red{background:#e11d48;color:#fff}
   .muted{color:#64748b;font-size:12px}
+  #debug{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;white-space:pre-wrap}
 </style>
-<noscript>
-  <div style="background:#fee2e2;color:#991b1b;padding:12px;text-align:center">This page requires JavaScript.</div>
-</noscript>
 </head>
 <body>
-<header><div class="wrap"><strong>Menu Reservation & Orders</strong> <span id="status" class="muted"></span></div></header>
+<header>
+  <div class="wrap">
+    <strong>Menu Reservation & Orders</strong>
+    <span id="status" class="muted"></span>
+  </div>
+</header>
 <main class="wrap">
-
   <div class="card">
     <h3>Reservation</h3>
     <div class="row row-3">
@@ -38,10 +40,9 @@
       <label>Time<input id="res_time" type="time" /></label>
     </div>
     <div style="margin-top:10px">
-      <!-- Inline handlers ensure clicks work even if scripts move -->
       <button id="btn-build" class="btn-dark">Build Guest Forms</button>
     </div>
-    <p class="muted" style="margin-top:8px">Each person must choose from at least <strong>two</strong> sections (starter/main/dessert) and at most one per section.</p>
+    <p class="muted" style="margin-top:8px">Each person must choose at least two sections (starter/main/dessert) and at most one per section.</p>
   </div>
 
   <div id="guests"></div>
@@ -50,168 +51,138 @@
     <button id="btn-submit" class="btn-red">Submit</button>
   </div>
 
+  <div id="debug" class="card" style="display:none"></div>
 </main>
 
 <script defer>
-// Expose a tiny status so you know JS is alive
 (function(){
-  const statusEl = document.getElementById('status');
-  function setStatus(t){ if(statusEl) statusEl.textContent = t; }
-  setStatus('initialising…');
+  'use strict';
+  var statusEl = document.getElementById('status');
+  function setStatus(t){ if(statusEl) statusEl.textContent = ' — ' + t; }
+  setStatus('initialising');
 
-  // ---- CONFIG: Your Apps Script Web App URL (JSONP-enabled) ----
-  const ENDPOINT = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
+  // UPDATE THIS to your proxy (Worker/Netlify). If you do not have one yet, it can point directly to Apps Script but fetch may be blocked by CORS.
+  var ENDPOINT = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
 
-  // ---- Utilities ----
-  const $ = (s,c=document)=>c.querySelector(s);
-  const $$ = (s,c=document)=>Array.from(c.querySelectorAll(s));
-  const guestsEl = document.getElementById('guests');
-  function uid(){ return 'r'+Math.random().toString(36).slice(2)+Date.now(); }
+  var guestsEl = document.getElementById('guests');
+  function uid(){ return 'r' + Math.random().toString(36).slice(2) + Date.now(); }
   function todayStr(){ return new Date().toISOString().slice(0,10); }
 
-  // ---- Local store (fallback) ----
-  const store = {
-    key:'reservations_v1',
-    all(){ try{return JSON.parse(localStorage.getItem(this.key)||'[]')}catch(_){return[]} },
-    save(list){ localStorage.setItem(this.key, JSON.stringify(list)); },
-    upsert(res){ const list=this.all(); const i=list.findIndex(x=>x.id===res.id);
+  var store = {
+    key: 'reservations_v1',
+    all: function(){ try { return JSON.parse(localStorage.getItem(this.key)||'[]'); } catch(e){ return []; } },
+    save: function(list){ localStorage.setItem(this.key, JSON.stringify(list)); },
+    upsert: function(res){ var list = this.all(); var i = -1, j; for(j=0;j<list.length;j++){ if(list[j].id===res.id){ i=j; break; } }
       if(i>-1) list[i]=res; else list.push(res); this.save(list); return res.id; }
   };
 
-  // ---- Menu options ----
-  const DISHES = {
-    starter:["","Soup","Salmon","Antipasto"],
-    main:["","Turkey","Haddock","Beef Ragu","Aubergine"],
-    dessert:["","Xmas Pudding","Gateaux","Vegan Tart"]
+  var DISHES = {
+    starter: ['', 'Soup', 'Salmon', 'Antipasto'],
+    main: ['', 'Turkey', 'Haddock', 'Beef Ragu', 'Aubergine'],
+    dessert: ['', 'Xmas Pudding', 'Gateaux', 'Vegan Tart']
   };
 
-  // ---- JSONP helpers (avoid CORS) ----
-  function jsonp(url){
-    return new Promise((resolve)=>{
-      const cb = 'jsonp_cb_' + Math.random().toString(36).slice(2);
-      window[cb] = (data)=>{ try{ resolve(data); } finally { delete window[cb]; s.remove(); } };
-      const s = document.createElement('script');
-      s.src = url + (url.includes('?')?'&':'?') + 'callback=' + cb;
-      s.onerror = ()=>{ delete window[cb]; s.remove(); resolve({ ok:false, error:'JSONP failed' }); };
-      document.body.appendChild(s);
-    });
-  }
+  function makeLabel(text){ var l=document.createElement('label'); l.textContent=text; l.appendChild(document.createElement('br')); return l; }
+  function makeInput(cls, placeholder){ var i=document.createElement('input'); i.className=cls; if(placeholder) i.placeholder=placeholder; i.style.marginTop='4px'; return i; }
+  function makeSelect(cls, options){ var s=document.createElement('select'); s.className=cls; s.style.marginTop='4px'; for(var k=0;k<options.length;k++){ var opt=document.createElement('option'); opt.value=options[k]; opt.textContent=options[k]; s.appendChild(opt);} return s; }
 
-  async function serverCreate(res){
-    const payload = JSON.stringify({ action:'create', reservation: res });
-    // 1) Try CORS-friendly fetch first (works with a proxy like Cloudflare Worker/Netlify Function)
-    try{
-      const r = await fetch(ENDPOINT, {
-        method:'POST',
-        headers:{ 'Content-Type':'text/plain' },
-        body: payload,
-      });
-      const data = await r.json();
-      return data;
-    }catch(_){ /* fall through to beacon */ }
+  function buildGuestForms(){
+    var n = Math.max(1, parseInt(document.getElementById('res_people').value || '1', 10));
+    guestsEl.innerHTML = '';
+    for(var i=0;i<n;i++){
+      var card = document.createElement('div'); card.className='card person-card';
+      var h = document.createElement('h4'); h.textContent = 'Person ' + (i+1); card.appendChild(h);
 
-    // 2) CSP-safe, CORS-free fallback: sendBeacon (fire-and-forget)
-    try{
-      const ok = navigator.sendBeacon(ENDPOINT, new Blob([payload], {type:'text/plain'}));
-      if(ok) return { ok:true, id: res.id, mode:'beacon' };
-    }catch(_){ }
+      var grid = document.createElement('div'); grid.className='row row-5'; card.appendChild(grid);
 
-    return { ok:false, error:'network' };
-  }
+      var l1 = makeLabel('Name'); var nameIn = makeInput('person-name','Full name'); l1.appendChild(nameIn); grid.appendChild(l1);
+      var l2 = makeLabel('Starter'); var selS = makeSelect('sel-starter', DISHES.starter); l2.appendChild(selS); grid.appendChild(l2);
+      var l3 = makeLabel('Main'); var selM = makeSelect('sel-main', DISHES.main); l3.appendChild(selM); grid.appendChild(l3);
+      var l4 = makeLabel('Dessert'); var selD = makeSelect('sel-dessert', DISHES.dessert); l4.appendChild(selD); grid.appendChild(l4);
+      var l5 = makeLabel('Allergies / Dietary'); var notes = makeInput('person-notes','e.g., nuts, gluten-free'); l5.appendChild(notes); grid.appendChild(l5);
 
-  // ---- Core functions (GLOBAL) ----
-  window.buildGuestForms = function buildGuestForms(){
-    try{
-      const n = Math.max(1, parseInt($('#res_people')?.value || '1'));
-      guestsEl.innerHTML='';
-      for(let i=0;i<n;i++){
-        const card = document.createElement('div');
-        card.className = 'card';
-        card.innerHTML = `
-          <h4>Person ${i+1}</h4>
-          <div class="row row-5">
-            <label>Name<input class="person-name" placeholder="Full name" /></label>
-            <label>Starter<select class="sel-starter">${DISHES.starter.map(o=>`<option>${o}</option>`).join('')}</select></label>
-            <label>Main<select class="sel-main">${DISHES.main.map(o=>`<option>${o}</option>`).join('')}</select></label>
-            <label>Dessert<select class="sel-dessert">${DISHES.dessert.map(o=>`<option>${o}</option>`).join('')}</select></label>
-            <label>Allergies / Dietary<input class="person-notes" placeholder="e.g., nuts, gluten-free" /></label>
-          </div>`;
-        guestsEl.appendChild(card);
-      }
-      alert(`Built ${n} guest form(s)`);
-    }catch(err){ alert('Error building forms: '+err); }
+      guestsEl.appendChild(card);
+    }
+    alert('Built ' + n + ' guest form(s)');
   }
 
   function collectReservation(){
-    const reservationName = $('#res_name')?.value.trim() || '';
-    const contact = $('#res_contact')?.value.trim() || '';
-    const date = $('#res_date')?.value || '';
-    const time = $('#res_time')?.value || '';
-    const people = parseInt($('#res_people')?.value || '1');
-    const guests = $$('.card', guestsEl).map(card=>{
-      const q = sel => card.querySelector(sel)?.value || '';
-      return {
-        name: q('.person-name').trim(),
-        starter: q('.sel-starter'),
-        main: q('.sel-main'),
-        dessert: q('.sel-dessert'),
-        notes: q('.person-notes').trim()
-      };
-    });
-    return { id: uid(), reservationName, contact, date, time, people, guests, createdAt:new Date().toISOString() };
+    var reservationName = (document.getElementById('res_name').value||'').trim();
+    var contact = (document.getElementById('res_contact').value||'').trim();
+    var date = document.getElementById('res_date').value||'';
+    var time = document.getElementById('res_time').value||'';
+    var people = parseInt(document.getElementById('res_people').value||'1',10);
+    var cards = guestsEl.querySelectorAll('.person-card');
+    var guests = [];
+    for(var i=0;i<cards.length;i++){
+      var card = cards[i];
+      guests.push({
+        name: (card.querySelector('.person-name').value||'').trim(),
+        starter: card.querySelector('.sel-starter').value,
+        main: card.querySelector('.sel-main').value,
+        dessert: card.querySelector('.sel-dessert').value,
+        notes: (card.querySelector('.person-notes').value||'').trim()
+      });
+    }
+    return { id: uid(), reservationName:reservationName, contact:contact, date:date, time:time, people:people, guests:guests, createdAt:new Date().toISOString() };
   }
 
   function validate(res){
-    const errs=[];
+    var errs=[]; var i;
     if(!res.reservationName) errs.push('Reservation Name is required.');
     if(!res.date) errs.push('Date is required.');
     if(!res.time) errs.push('Time is required.');
-    if(!Number.isInteger(res.people)||res.people<1) errs.push('Number of People must be at least 1.');
+    if(!res.people || res.people<1) errs.push('Number of People must be at least 1.');
     if(res.guests.length!==res.people) errs.push('Guest forms do not match the number of people. Click "Build Guest Forms" again.');
-    res.guests.forEach((g,i)=>{
-      const count=[g.starter,g.main,g.dessert].filter(Boolean).length;
-      if(!g.name) errs.push(`Person ${i+1}: Name is required.`);
-      if(count<2) errs.push(`Person ${i+1} (${g.name||'Unnamed'}): must choose at least 2 courses.`);
-      if(count>3) errs.push(`Person ${i+1} (${g.name||'Unnamed'}): too many courses.`);
-    });
+    for(i=0;i<res.guests.length;i++){
+      var g = res.guests[i];
+      var count = 0; if(g.starter) count++; if(g.main) count++; if(g.dessert) count++;
+      if(!g.name) errs.push('Person ' + (i+1) + ': Name is required.');
+      if(count<2) errs.push('Person ' + (i+1) + ' (' + (g.name||'Unnamed') + '): must choose at least 2 courses.');
+      if(count>3) errs.push('Person ' + (i+1) + ' (' + (g.name||'Unnamed') + '): too many courses.');
+    }
     return errs;
   }
 
-  window.submitReservation = async function submitReservation(){
+  function showDebug(msg){ var d=document.getElementById('debug'); d.style.display='block'; d.textContent = msg; }
+
+  async function serverCreate(res){
+    var payload = JSON.stringify({ action:'create', reservation: res });
+    // Try fetch() to proxy first
     try{
-      const res = collectReservation();
-      const errs = validate(res);
-      if(errs.length){ alert('Please fix the following:
+      var r = await fetch(ENDPOINT, {
+        method:'POST',
+        headers:{ 'Content-Type':'text/plain' },
+        body: payload
+      });
+      var text = await r.text();
+      try { return JSON.parse(text); } catch(e){ return { ok:false, error:'Bad JSON from proxy: ' + text }; }
+    } catch(err){
+      // Fallback: sendBeacon (fire-and-forget) — still records in Sheets but no JSON
+      try{
+        var ok = navigator.sendBeacon(ENDPOINT, new Blob([payload], {type:'text/plain'}));
+        if(ok) return { ok:true, id: res.id, mode:'beacon' };
+      }catch(e){}
+      return { ok:false, error:String(err&&err.message||err) };
+    }
+  }
 
-'+errs.join('
-')); return; }
-      // Local backup
+  function bind(){
+    var d = document.getElementById('res_date'); if(d && !d.value) d.value = todayStr();
+    var b1 = document.getElementById('btn-build'); var b2 = document.getElementById('btn-submit');
+    if(b1) b1.addEventListener('click', function(){ try{ buildGuestForms(); }catch(e){ alert('Error: '+e); } });
+    if(b2) b2.addEventListener('click', async function(){
+      var res = collectReservation();
+      var errs = validate(res);
+      if(errs.length){ alert('Please fix the following:\n\n' + errs.join('\n')); return; }
       store.upsert(res);
-      // Server submit
-      const ack = await serverCreate(res);
-      if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id)); }
-      else { alert('Saved locally. Could not submit to server right now.'); console.warn('Server error:', ack); }
-    }catch(err){ alert('Submit failed: ' + err); }
-  }
-
-  // Fallback delegated binding (works even without inline)
-  document.addEventListener('click', (e)=>{
-    const btn = e.target.closest('button'); if(!btn) return;
-    if(btn.id==='btn-build'){ window.buildGuestForms(); }
-    if(btn.id==='btn-submit'){ window.submitReservation(); }
-  });
-
-  // Init
-  function init(){
-    const dateEl = document.getElementById('res_date');
-    if(dateEl && !dateEl.value) dateEl.value = todayStr();
+      var ack = await serverCreate(res);
+      if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id) + (ack.mode==='beacon' ? ' (beacon)' : '')); }
+      else { alert('Saved locally. Could not submit to server right now.'); if(ack && ack.error){ showDebug('Submit error: ' + JSON.stringify(ack)); } }
+    });
     setStatus('ready');
-    console.log('[menu-reservations] init complete');
   }
-  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init); else init();
-
-  // Surface JS errors while testing
-  window.addEventListener('error', (e)=>{ console.error('JS error:', e?.error || e); });
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();
 </script>
 </body>
