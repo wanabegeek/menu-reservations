@@ -121,7 +121,11 @@
 
       guestsEl.appendChild(card);
     }
-     window.buildGuestForms = buildGuestForms;
+    // make it callable from other scripts
+window.buildGuestForms = buildGuestForms;
+// optional signal for listeners
+document.dispatchEvent(new Event('app-ready'));
+
     alert('Built ' + n + ' guest form(s)');
   }
 
@@ -359,12 +363,16 @@ async function checkAvailability(dateISO, timeHHMM, people) {
           return;
         }
         // Success -> build forms (your function reads #res_people itself)
-        if (typeof buildGuestForms === 'function') buildGuestForms();
-        else console.warn('buildGuestForms() not found');
-      } catch (err) {
-        console.error(err);
-        alert('Could not check availability. Please try again.');
-      }
+        if (typeof buildGuestForms === 'function') {
+  buildGuestForms();
+} else {
+  // wait once for the app to finish initializing
+  await new Promise(resolve => {
+    document.addEventListener('app-ready', resolve, { once: true });
+  });
+  if (typeof buildGuestForms === 'function') buildGuestForms();
+  else console.warn('buildGuestForms() still not available.');
+}
     });
 
     return true;
