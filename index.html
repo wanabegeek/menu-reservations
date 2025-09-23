@@ -203,56 +203,37 @@
 })();
 </script>
   <script>
-/** POINT THIS at your endpoint:
- *  - If you use the Cloudflare Worker proxy, use that URL.
- *  - Otherwise you can use your Apps Script /exec URL directly.
- */
-const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/'; // <-- or your GAS /exec
+const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
+
+// Optional: set this to your direct GAS /exec for a fallback GET if you want
+// const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
 
 async function checkAvailability(dateISO, timeHHMM, people) {
-  const u = new URL(API_BASE);
-  u.searchParams.set('action','availability');
-  u.searchParams.set('date', dateISO);   // 'YYYY-MM-DD' from <input type="date">
-  u.searchParams.set('time', timeHHMM);  // 'HH:MM'      from <input type="time">
-  u.searchParams.set('people', String(people));
-
-  const res = await fetch(u.toString(), { method: 'GET' });
-  if (!res.ok) throw new Error('Network error');
-  return res.json();
+  // primary: POST via Worker (reliable)
+  const payload = JSON.stringify({ action: 'availability', date: dateISO, time: timeHHMM, people });
+  try {
+    const r = await fetch(API_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: payload
+    });
+    const text = await r.text();
+    try { return JSON.parse(text); } catch { return { ok:false, error:'Bad JSON from proxy', raw:text }; }
+  } catch (err) {
+    // optional fallback direct to GAS via GET
+    // if (!GAS_EXEC) throw err;
+    // const u = new URL(GAS_EXEC);
+    // u.searchParams.set('action','availability');
+    // u.searchParams.set('date', dateISO);
+    // u.searchParams.set('time', timeHHMM);
+    // u.searchParams.set('people', String(people));
+    // const r2 = await fetch(u.toString());
+    // return r2.json();
+    return { ok:false, error:String(err) };
+  }
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-  const btn    = document.getElementById('btn-build');
-  const dateEl = document.getElementById('res_date');   // <-- FIXED
-  const timeEl = document.getElementById('res_time');   // <-- FIXED
-  const pplEl  = document.getElementById('res_people'); // <-- FIXED
-
-  if (!btn) { console.error('btn-build not found'); return; }
-
-  btn.addEventListener('click', async (e) => {
-    e.preventDefault();
-
-    const dateISO   = dateEl?.value || '';
-    const timeHHMM  = timeEl?.value || '';
-    const people    = Number(pplEl?.value || 0);
-
-    try {
-      const a = await checkAvailability(dateISO, timeHHMM, people);
-      if (!a.ok || !a.canBook) {
-        const reasons = (a.details?.reasons || a.reasons || ['Not available']).join('\n');
-        alert(reasons);
-        return; // do NOT build forms
-      }
-      // OK — now build forms
-      buildGuestForms(); // no param needed; your function reads res_people itself
-    } catch (err) {
-      alert('Could not check availability. Please try again.');
-      console.error(err);
-    }
-  });
-});
-
 </script>
+
   <script>
 (function(){
   // Build 5-minute minute options, constrained if hour === '14'
