@@ -203,36 +203,37 @@
 })();
 </script>
   <script>
-const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
+const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/'; // keep for submit
+const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec'; // direct to Apps Script
 
-// Optional: set this to your direct GAS /exec for a fallback GET if you want
-// const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
-
+// Robust availability: try Worker POST; if it returns a "reservations" list (wrong),
+// fall back to direct GAS GET with query params.
 async function checkAvailability(dateISO, timeHHMM, people) {
-  // primary: POST via Worker (reliable)
-  const payload = JSON.stringify({ action: 'availability', date: dateISO, time: timeHHMM, people });
+  // 1) Try Worker POST first (if your Worker gets fixed later, this will work)
   try {
-    const r = await fetch(API_BASE, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: payload
-    });
+    const payload = JSON.stringify({ action: 'availability', date: dateISO, time: timeHHMM, people });
+    const r = await fetch(API_BASE, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: payload });
     const text = await r.text();
-    try { return JSON.parse(text); } catch { return { ok:false, error:'Bad JSON from proxy', raw:text }; }
-  } catch (err) {
-    // optional fallback direct to GAS via GET
-    // if (!GAS_EXEC) throw err;
-    // const u = new URL(GAS_EXEC);
-    // u.searchParams.set('action','availability');
-    // u.searchParams.set('date', dateISO);
-    // u.searchParams.set('time', timeHHMM);
-    // u.searchParams.set('people', String(people));
-    // const r2 = await fetch(u.toString());
-    // return r2.json();
-    return { ok:false, error:String(err) };
+    let data = {};
+    try { data = JSON.parse(text); } catch (_) {}
+    // Correct availability payload must have canBook/reasons
+    if (data && typeof data.canBook === 'boolean') return data;
+  } catch (_) {
+    // ignore and fall back
   }
+
+  // 2) Fallback: hit Apps Script directly via GET (bypasses the Worker)
+  const u = new URL(GAS_EXEC);
+  u.searchParams.set('action', 'availability');
+  u.searchParams.set('date', dateISO);
+  u.searchParams.set('time', timeHHMM);
+  u.searchParams.set('people', String(people));
+  const r2 = await fetch(u.toString(), { method: 'GET' });
+  if (!r2.ok) throw new Error('availability network');
+  return r2.json();
 }
 </script>
+
 
   <script>
 (function(){
