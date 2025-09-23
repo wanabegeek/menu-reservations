@@ -202,14 +202,34 @@
     var d = document.getElementById('res_date'); if(d && !d.value) d.value = todayStr();
     var b1 = document.getElementById('btn-build'); var b2 = document.getElementById('btn-submit');
     if(b2) b2.addEventListener('click', async function(){
-      var res = collectReservation();
-      var errs = validate(res);
-      if(errs.length){ alert('Please fix the following:\n\n' + errs.join('\n')); return; }
-      store.upsert(res);
-      var ack = await serverCreate(res);
-      if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id) + (ack.mode==='beacon' ? ' (beacon)' : '')); }
-      else { alert('Saved locally. Could not submit to server right now.'); if(ack && ack.error){ showDebug('Submit error: ' + JSON.stringify(ack)); } }
-    });
+  var res = collectReservation();
+  var errs = validate(res);
+  if(errs.length){ alert('Please fix the following:\n\n' + errs.join('\n')); return; }
+  store.upsert(res);
+  var ack = await serverCreate(res);
+  if(ack && ack.ok){
+    // Show thank you message
+    alert('Form submitted, thank you!');
+    // Clear the form
+    document.getElementById('res_name').value = '';
+    document.getElementById('res_contact').value = '';
+    document.getElementById('res_date').value = '';
+    document.getElementById('res_time').value = '';
+    document.getElementById('res_people').value = '1';
+    document.getElementById('guests').innerHTML = '';
+    // Optionally, reset hour/minute selects
+    document.getElementById('res_hour').value = '12';
+    if(document.getElementById('res_minute')) {
+      document.getElementById('res_minute').innerHTML = '';
+    }
+  }
+  else {
+    alert('Saved locally. Could not submit to server right now.');
+    if(ack && ack.error){
+      showDebug('Submit error: ' + JSON.stringify(ack));
+    }
+  }
+});
     setStatus('ready');
   }
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
