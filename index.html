@@ -131,10 +131,11 @@
 
       guestsEl.appendChild(card);
     }
-    window.buildGuestForms = buildGuestForms;
     document.dispatchEvent(new Event('app-ready'));
     alert('Built ' + n + ' guest form(s)');
   }
+  // --- THIS IS THE IMPORTANT FIX ---
+  window.buildGuestForms = buildGuestForms;
 
   function collectReservation(){
     var reservationName = (document.getElementById('res_name').value||'').trim();
@@ -214,7 +215,7 @@
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();
 </script>
-
+<!-- No changes needed to the other script blocks -->
 <script>
 const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbyDyDyVPkzfUFMYX1bGs1G9Y-mKSJFatIJ0hY5wKA1YdkkiHFPt0F0Uf1ie723alBY7UQ/exec';
 
