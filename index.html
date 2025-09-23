@@ -203,77 +203,46 @@
 })();
 </script>
   <script>
-// Use your direct GAS /exec URL for availability:
 const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
 
-async function checkAvailability(dateISO, timeHHMM, people) {
-  const u = new URL(GAS_EXEC);
-  u.searchParams.set('action','availability');
-  u.searchParams.set('date', dateISO);
-  u.searchParams.set('time', timeHHMM);
-  u.searchParams.set('people', String(people));
-  const r = await fetch(u.toString(), { method: 'GET' });
-  if (!r.ok) throw new Error('Network error');
-  return r.json();
-}
+/** JSONP promise helper */
+function jsonp(url, params = {}, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const cb = 'cb_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const u = new URL(url);
+    for (const [k,v] of Object.entries(params)) u.searchParams.set(k, v);
+    u.searchParams.set('callback', cb);
 
-
-// Robust bind: run now; if DOM not ready, fall back to DOMContentLoaded
-(function attachAvailabilityGuard(){
-  function bind() {
-    const btn    = document.getElementById('btn-build');
-    const dateEl = document.getElementById('res_date');
-    const timeEl = document.getElementById('res_time');    // hidden input we keep in sync
-    const pplEl  = document.getElementById('res_people');
-
-    if (!btn || !dateEl || !timeEl || !pplEl) return false;
-
-    // Ensure hidden time has a value if hour/min selects exist
-    const hSel = document.getElementById('res_hour');
-    const mSel = document.getElementById('res_minute');
-    if (hSel && mSel && !timeEl.value) {
-      const hh = (hSel.value || '12').padStart(2,'0');
-      const mm = (mSel.value || '00').padStart(2,'0');
-      timeEl.value = `${hh}:${mm}`;
+    let timer;
+    function cleanup() {
+      try { s.remove(); } catch {}
+      try { delete window[cb]; } catch {}
+      if (timer) clearTimeout(timer);
     }
 
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      const dateISO  = dateEl.value || '';
-      const timeHHMM = timeEl.value || '';
-      const people   = Number(pplEl.value || 0);
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('JSONP network error')); };
 
-      try {
-        const a = await checkAvailability(dateISO, timeHHMM, people);
-        if (!a.ok || !a.canBook) {
-          const reasons = (a.details?.reasons || a.reasons || ['Not available']).join('\n');
-          alert(reasons);
-          return;
-        }
-        // Availability OK -> call your existing builder
-        if (typeof buildGuestForms === 'function') {
-          buildGuestForms(); // your function reads #res_people internally
-        } else {
-          console.warn('buildGuestForms(...) not found');
-        }
-      } catch (err) {
-        console.error(err);
-        alert('Could not check availability. Please try again.');
-      }
-    });
+    timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
+    s.src = u.toString();
+    document.head.appendChild(s);
+  });
+}
 
-    return true;
-  }
-
-  if (!bind()) {
-    document.addEventListener('DOMContentLoaded', bind, { once:true });
-  }
-})();
+/** Availability via JSONP (bypasses CORS + 302) */
+async function checkAvailability(dateISO, timeHHMM, people) {
+  const params = {
+    action: 'availability',
+    date: dateISO,
+    time: timeHHMM,
+    people: String(people)
+  };
+  return jsonp(GAS_EXEC, params);
+}
 </script>
 
-
-
-  <script>
+<script>
 (function(){
   // Build 5-minute minute options, constrained if hour === '14'
   function buildMinuteOptions(hour) {
