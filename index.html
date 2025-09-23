@@ -59,7 +59,7 @@
     <div style="margin-top:10px">
       <button id="btn-build" class="btn-dark">Next</button>
     </div>
-    <p class="muted" style="margin-top:8px">Each person must choose at least two sections (starter/main/dessert) and at most one per section.</p>
+    <p class="muted" style="margin-top:8px">Each person must choose from at least two sections (starter/main/dessert) and only one choice per section.</p>
   </div>
 
   <div id="guests"></div>
@@ -151,7 +151,7 @@
     if(!res.date) errs.push('Date is required.');
     if(!res.time) errs.push('Time is required.');
     if(!res.people || res.people<1) errs.push('Number of People must be at least 1.');
-    if(res.guests.length!==res.people) errs.push('Guest forms do not match the number of people. Click "Build Guest Forms" again.');
+    if(res.guests.length!==res.people) errs.push('Guest forms do not match the number of people. Click "Next" again.');
     for(i=0;i<res.guests.length;i++){
       var g = res.guests[i];
       var count = 0; if(g.starter) count++; if(g.main) count++; if(g.dessert) count++;
