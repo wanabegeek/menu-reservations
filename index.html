@@ -203,36 +203,81 @@
 })();
 </script>
   <script>
-const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/'; // keep for submit
-const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec'; // direct to Apps Script
+const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
+const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
 
-// Robust availability: try Worker POST; if it returns a "reservations" list (wrong),
-// fall back to direct GAS GET with query params.
+// Try Worker POST first; if response shape is wrong, fall back to direct GAS GET.
 async function checkAvailability(dateISO, timeHHMM, people) {
-  // 1) Try Worker POST first (if your Worker gets fixed later, this will work)
   try {
     const payload = JSON.stringify({ action: 'availability', date: dateISO, time: timeHHMM, people });
     const r = await fetch(API_BASE, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: payload });
     const text = await r.text();
     let data = {};
-    try { data = JSON.parse(text); } catch (_) {}
-    // Correct availability payload must have canBook/reasons
+    try { data = JSON.parse(text); } catch {}
     if (data && typeof data.canBook === 'boolean') return data;
-  } catch (_) {
-    // ignore and fall back
-  }
-
-  // 2) Fallback: hit Apps Script directly via GET (bypasses the Worker)
+  } catch {}
   const u = new URL(GAS_EXEC);
-  u.searchParams.set('action', 'availability');
+  u.searchParams.set('action','availability');
   u.searchParams.set('date', dateISO);
   u.searchParams.set('time', timeHHMM);
   u.searchParams.set('people', String(people));
   const r2 = await fetch(u.toString(), { method: 'GET' });
-  if (!r2.ok) throw new Error('availability network');
   return r2.json();
 }
+
+// Robust bind: run now; if DOM not ready, fall back to DOMContentLoaded
+(function attachAvailabilityGuard(){
+  function bind() {
+    const btn    = document.getElementById('btn-build');
+    const dateEl = document.getElementById('res_date');
+    const timeEl = document.getElementById('res_time');    // hidden input we keep in sync
+    const pplEl  = document.getElementById('res_people');
+
+    if (!btn || !dateEl || !timeEl || !pplEl) return false;
+
+    // Ensure hidden time has a value if hour/min selects exist
+    const hSel = document.getElementById('res_hour');
+    const mSel = document.getElementById('res_minute');
+    if (hSel && mSel && !timeEl.value) {
+      const hh = (hSel.value || '12').padStart(2,'0');
+      const mm = (mSel.value || '00').padStart(2,'0');
+      timeEl.value = `${hh}:${mm}`;
+    }
+
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const dateISO  = dateEl.value || '';
+      const timeHHMM = timeEl.value || '';
+      const people   = Number(pplEl.value || 0);
+
+      try {
+        const a = await checkAvailability(dateISO, timeHHMM, people);
+        if (!a.ok || !a.canBook) {
+          const reasons = (a.details?.reasons || a.reasons || ['Not available']).join('\n');
+          alert(reasons);
+          return;
+        }
+        // Availability OK -> call your existing builder
+        if (typeof buildGuestForms === 'function') {
+          buildGuestForms(); // your function reads #res_people internally
+        } else {
+          console.warn('buildGuestForms(...) not found');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Could not check availability. Please try again.');
+      }
+    });
+
+    return true;
+  }
+
+  if (!bind()) {
+    document.addEventListener('DOMContentLoaded', bind, { once:true });
+  }
+})();
 </script>
+
 
 
   <script>
