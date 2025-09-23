@@ -10,7 +10,7 @@
   .wrap{max-width:1000px;margin:0 auto;padding:16px}
   .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:12px}
   label{font-size:14px;display:block;margin-bottom:8px}
-  input,select{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px}
+  input,select{width:auto;padding:10px;border:1px solid #cbd5e1;border-radius:8px}
   .row{display:grid;gap:12px}
   @media(min-width:720px){.row-3{grid-template-columns:1fr 1fr 1fr}.row-2{grid-template-columns:1fr 1fr}.row-5{grid-template-columns:1fr 1fr 1fr 1fr 1fr}}
   button{cursor:pointer;border:0;border-radius:12px;padding:10px 16px}
@@ -39,9 +39,20 @@
      <label>Date
        <input id="res_date" type="date" min="2025-11-24" max="2025-12-24" />
      </label>
-     <label>Time
-        <input id="res_time" type="time" min="12:00" max="14:30" step="900" />
-     </label>
+    <label>Time
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <select id="res_hour">
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+        </select>
+        <span>:</span>
+        <select id="res_minute"></select>
+      </div>
+      <!-- keep a hidden native time input so existing JS keeps working -->
+      <input id="res_time" type="time" min="12:00" max="14:30" step="300" hidden />
+    </label>
+
     </div>
     <div style="margin-top:10px">
       <button id="btn-build" class="btn-dark">Next</button>
@@ -239,6 +250,71 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
+</script>
+  <script>
+(function(){
+  // Build 5-minute minute options, constrained if hour === '14'
+  function buildMinuteOptions(hour) {
+    const max = (hour === '14') ? 30 : 55;
+    const mins = [];
+    for (let m = 0; m <= max; m += 5) mins.push(m.toString().padStart(2,'0'));
+    return mins;
+  }
+
+  function syncTimeFromSelects() {
+    const hSel = document.getElementById('res_hour');
+    const mSel = document.getElementById('res_minute');
+    const tInp = document.getElementById('res_time');
+    if (!hSel || !mSel || !tInp) return;
+
+    // If hour is 14 and minute > 30, clamp to 30
+    if (hSel.value === '14' && Number(mSel.value) > 30) {
+      mSel.value = '30';
+    }
+
+    const hh = hSel.value.padStart(2,'0');
+    const mm = (mSel.value || '00').padStart(2,'0');
+    tInp.value = `${hh}:${mm}`;
+  }
+
+  function populateMinutes() {
+    const hSel = document.getElementById('res_hour');
+    const mSel = document.getElementById('res_minute');
+    if (!hSel || !mSel) return;
+
+    const minutes = buildMinuteOptions(hSel.value);
+    const prev = mSel.value; // try to preserve current minute
+    mSel.innerHTML = minutes.map(m => `<option value="${m}">${m}</option>`).join('');
+    // restore if still valid, else pick closest valid
+    if (minutes.includes(prev)) mSel.value = prev;
+    else mSel.value = minutes[minutes.length - 1];
+
+    syncTimeFromSelects();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const hSel = document.getElementById('res_hour');
+    const mSel = document.getElementById('res_minute');
+    const tInp = document.getElementById('res_time');
+
+    if (!hSel || !mSel || !tInp) return;
+
+    // Initialise from any existing res_time value (or default to 12:00)
+    let initH = '12', initM = '00';
+    if (tInp.value && /^\d{2}:\d{2}$/.test(tInp.value)) {
+      const [h, m] = tInp.value.split(':');
+      if (['12','13','14'].includes(h)) { initH = h; initM = m; }
+    }
+    hSel.value = initH;
+    populateMinutes();         // fills minute options based on hour
+    mSel.value = initM;        // try to set saved minute (will be clamped if 14:>30)
+    syncTimeFromSelects();
+
+    // React to changes
+    hSel.addEventListener('change', populateMinutes);
+    mSel.addEventListener('change', syncTimeFromSelects);
+  });
+})();
 </script>
 
 </body>
