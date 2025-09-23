@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Christmas Menu Reservations</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#f8fafc;color:#0f172a;margin:0}
+  header{position:sticky;top:0;background:#fff;border-bottom:1px solid #e2e8f0;padding:10px 16px}
+  .wrap{max-width:1000px;margin:0 auto;padding:16px}
+  .card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin-bottom:12px}
+  label{font-size:14px;display:block;margin-bottom:8px}
+  label.inline-row { display:flex; align-items:center; gap:8px; }
+  label.inline-row > .controls { display:flex; align-items:center; gap:8px; }
+  input,select{width:auto;padding:10px;border:1px solid #cbd5e1;border-radius:8px}
+  .row{display:grid;gap:12px}
+  @media(min-width:720px){.row-3{grid-template-columns:1fr 1fr 1fr}.row-2{grid-template-columns:1fr 1fr}.row-5{grid-template-columns:1fr 1fr 1fr 1fr 1fr}}
+  button{cursor:pointer;border:0;border-radius:12px;padding:10px 16px}
+  .btn-dark{background:#0f172a;color:#fff}
+  .btn-red{background:#e11d48;color:#fff}
+  .muted{color:#64748b;font-size:12px}
+  #debug{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <strong>Christmas Menu Reservation & Orders</strong>
+    <span id="status" class="muted"></span>
+  </div>
+</header>
+<main class="wrap">
+  <div class="card">
+    <h3>Reservation</h3>
+    <div class="row row-3">
+      <label for="res_name">Reservation Name <input id="res_name" placeholder="Smith" /></label>
+      <label for="res_contact">Contact Details <input id="res_contact" placeholder="email or phone" /></label>
+      <label for="res_people">Number of People <input id="res_people" type="number" min="1" value="1" /></label>
+    </div>
+    <div class="row row-2" style="margin-top:8px">
+     <label for="res_date">Date
+       <input id="res_date" type="date" min="2025-11-24" max="2025-12-24" />
+     </label>
+    <label class="inline-row" for="res_hour">
+      <span>Time</span>
+      <div class="controls" style="margin-top:4px">
+        <select id="res_hour">
+          <option value="12">12</option>
+          <option value="13">13</option>
+          <option value="14">14</option>
+        </select>
+        <span>:</span>
+        <select id="res_minute"></select>
+      </div>
+    <!-- keep hidden native time for existing JS -->
+    <input id="res_time" type="time" min="12:00" max="14:30" step="300" hidden />
+    </label>
+    </div>
+    <div style="margin-top:10px">
+      <button id="btn-build" class="btn-dark" type="button">Next</button>
+    </div>
+    <p class="muted" style="margin-top:8px">Each person must choose from at least two sections (starter/main/dessert) and only one choice per section.</p>
+  </div>
+
+  <div id="guests"></div>
+
+  <div class="card">
+    <button id="btn-submit" class="btn-red" type="button">Submit</button>
+  </div>
+
+  <div id="debug" class="card" style="display:none"></div>
+</main>
+
+<script defer>
+(function(){
+  'use strict';
+  var statusEl = document.getElementById('status');
+  function setStatus(t){ if(statusEl) statusEl.textContent = ' — ' + t; }
+  setStatus('initialising');
+
+  // proxy (Worker). 
+  var ENDPOINT = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
+
+  var guestsEl = document.getElementById('guests');
+  function uid(){ return 'r' + Math.random().toString(36).slice(2) + Date.now(); }
+  function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+  var store = {
+    key: 'reservations_v1',
+    all: function(){ try { return JSON.parse(localStorage.getItem(this.key)||'[]'); } catch(e){ return []; } },
+    save: function(list){ localStorage.setItem(this.key, JSON.stringify(list)); },
+    upsert: function(res){ var list = this.all(); var i = -1, j; for(j=0;j<list.length;j++){ if(list[j].id===res.id){ i=j; break; } }
+      if(i>-1) list[i]=res; else list.push(res); this.save(list); return res.id; }
+  };
+
+  var DISHES = {
+    starter: ['', 'Soup', 'Salmon', 'Antipasto'],
+    main: ['', 'Turkey', 'Haddock', 'Beef Ragu', 'Aubergine'],
+    dessert: ['', 'Xmas Pudding', 'Gateaux', 'Vegan Tart']
+  };
+
+  function makeLabel(text){ var l=document.createElement('label'); l.textContent=text; l.appendChild(document.createElement('br')); return l; }
+  function makeInput(cls, placeholder){ var i=document.createElement('input'); i.className=cls; if(placeholder) i.placeholder=placeholder; i.style.marginTop='4px'; return i; }
+  function makeSelect(cls, options){
+    var s = document.createElement('select');
+    s.className = cls;
+    s.style.marginTop = '4px';
+    for(var k = 0; k < options.length; k++){
+      var opt = document.createElement('option');
+      opt.value = options[k];
+      opt.textContent = options[k];
+      s.appendChild(opt);
+    }
+    return s;
+  }
+
+  function buildGuestForms(){
+    var n = Math.max(1, parseInt(document.getElementById('res_people').value || '1', 10));
+    guestsEl.innerHTML = '';
+    for(var i=0;i<n;i++){
+      var card = document.createElement('div'); card.className='card person-card';
+      var h = document.createElement('h4'); h.textContent = 'Person ' + (i+1); card.appendChild(h);
+
+      var grid = document.createElement('div'); grid.className='row row-5'; card.appendChild(grid);
+
+      var l1 = makeLabel('Name'); var nameIn = makeInput('person-name','Full name'); l1.appendChild(nameIn); grid.appendChild(l1);
+      var l2 = makeLabel('Starter'); var selS = makeSelect('sel-starter', DISHES.starter); l2.appendChild(selS); grid.appendChild(l2);
+      var l3 = makeLabel('Main'); var selM = makeSelect('sel-main', DISHES.main); l3.appendChild(selM); grid.appendChild(l3);
+      var l4 = makeLabel('Dessert'); var selD = makeSelect('sel-dessert', DISHES.dessert); l4.appendChild(selD); grid.appendChild(l4);
+      var l5 = makeLabel('Allergies / Dietary'); var notes = makeInput('person-notes','e.g., nuts, gluten-free'); l5.appendChild(notes); grid.appendChild(l5);
+
+      guestsEl.appendChild(card);
+    }
+    window.buildGuestForms = buildGuestForms;
+    document.dispatchEvent(new Event('app-ready'));
+    alert('Built ' + n + ' guest form(s)');
+  }
+
+  function collectReservation(){
+    var reservationName = (document.getElementById('res_name').value||'').trim();
+    var contact = (document.getElementById('res_contact').value||'').trim();
+    var date = document.getElementById('res_date').value||'';
+    var time = document.getElementById('res_time').value||'';
+    var people = parseInt(document.getElementById('res_people').value||'1',10);
+    var cards = guestsEl.querySelectorAll('.person-card');
+    var guests = [];
+    for(var i=0;i<cards.length;i++){
+      var card = cards[i];
+      guests.push({
+        name: (card.querySelector('.person-name').value||'').trim(),
+        starter: card.querySelector('.sel-starter').value,
+        main: card.querySelector('.sel-main').value,
+        dessert: card.querySelector('.sel-dessert').value,
+        notes: (card.querySelector('.person-notes').value||'').trim()
+      });
+    }
+    return { id: uid(), reservationName:reservationName, contact:contact, date:date, time:time, people:people, guests:guests, createdAt:new Date().toISOString() };
+  }
+
+  function validate(res){
+    var errs=[]; var i;
+    if(!res.reservationName) errs.push('Reservation Name is required.');
+    if(!res.date) errs.push('Date is required.');
+    if(!res.time) errs.push('Time is required.');
+    if(!res.people || res.people<1) errs.push('Number of People must be at least 1.');
+    if(res.guests.length!==res.people) errs.push('Guest forms do not match the number of people. Click "Next" again.');
+    for(i=0;i<res.guests.length;i++){
+      var g = res.guests[i];
+      var count = 0; if(g.starter) count++; if(g.main) count++; if(g.dessert) count++;
+      if(!g.name) errs.push('Person ' + (i+1) + ': Name is required.');
+      if(count<2) errs.push('Person ' + (i+1) + ' (' + (g.name||'Unnamed') + '): must choose at least 2 courses.');
+      if(count>3) errs.push('Person ' + (i+1) + ' (' + (g.name||'Unnamed') + '): too many courses.');
+    }
+    return errs;
+  }
+
+  function showDebug(msg){ var d=document.getElementById('debug'); d.style.display='block'; d.textContent = msg; }
+
+  async function serverCreate(res){
+    var payload = JSON.stringify({ action:'create', reservation: res });
+    // Try fetch() to proxy first
+    try{
+      var r = await fetch(ENDPOINT, {
+        method:'POST',
+        headers:{ 'Content-Type':'text/plain' },
+        body: payload
+      });
+      var text = await r.text();
+      try { return JSON.parse(text); } catch(e){ return { ok:false, error:'Bad JSON from proxy: ' + text }; }
+    } catch(err){
+      // Fallback: sendBeacon (fire-and-forget) — still records in Sheets but no JSON
+      try{
+        var ok = navigator.sendBeacon(ENDPOINT, new Blob([payload], {type:'text/plain'}));
+        if(ok) return { ok:true, id: res.id, mode:'beacon' };
+      }catch(e){}
+      return { ok:false, error:String(err&&err.message||err) };
+    }
+  }
+
+  function bind(){
+    var d = document.getElementById('res_date'); if(d && !d.value) d.value = todayStr();
+    var b1 = document.getElementById('btn-build'); var b2 = document.getElementById('btn-submit');
+    if(b2) b2.addEventListener('click', async function(){
+      var res = collectReservation();
+      var errs = validate(res);
+      if(errs.length){ alert('Please fix the following:\n\n' + errs.join('\n')); return; }
+      store.upsert(res);
+      var ack = await serverCreate(res);
+      if(ack && ack.ok){ alert('Submitted to server. ID: ' + (ack.id || res.id) + (ack.mode==='beacon' ? ' (beacon)' : '')); }
+      else { alert('Saved locally. Could not submit to server right now.'); if(ack && ack.error){ showDebug('Submit error: ' + JSON.stringify(ack)); } }
+    });
+    setStatus('ready');
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+})();
+</script>
+
+<script>
+const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbyDyDyVPkzfUFMYX1bGs1G9Y-mKSJFatIJ0hY5wKA1YdkkiHFPt0F0Uf1ie723alBY7UQ/exec';
+
+/** JSONP promise helper */
+function jsonp(url, params = {}, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const cb = 'cb_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const u = new URL(url);
+    for (const [k,v] of Object.entries(params)) u.searchParams.set(k, v);
+    u.searchParams.set('callback', cb);
+
+    let timer;
+    function cleanup() {
+      try { s.remove(); } catch (e) {}
+      try { delete window[cb]; } catch (e) {}
+      if (timer) clearTimeout(timer);
+    }
+
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('JSONP network error')); };
+
+    timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
+    s.src = u.toString();
+    document.head.appendChild(s);
+  });
+}
+
+/** Availability via JSONP (bypasses CORS + 302) */
+async function checkAvailability(dateISO, timeHHMM, people) {
+  const params = {
+    action: 'availability',
+    date: dateISO,
+    time: timeHHMM,
+    people: String(people)
+  };
+  return jsonp(GAS_EXEC, params);
+}
+</script>
+
+<script>
+(function(){
+  // Build 5-minute minute options, constrained if hour === '14'
+  function buildMinuteOptions(hour) {
+    const max = (hour === '14') ? 30 : 55;
+    const mins = [];
+    for (let m = 0; m <= max; m += 5) mins.push(m.toString().padStart(2,'0'));
+    return mins;
+  }
+
+  function syncTimeFromSelects() {
+    const hSel = document.getElementById('res_hour');
+    const mSel = document.getElementById('res_minute');
+    const tInp = document.getElementById('res_time');
+    if (!hSel || !mSel || !tInp) return;
+
+    // If hour is 14 and minute > 30, clamp to 30
+    if (hSel.value === '14' && Number(mSel.value) > 30) {
+      mSel.value = '30';
+    }
+
+    const hh = hSel.value.padStart(2,'0');
+    const mm = (mSel.value || '00').padStart(2,'0');
+    tInp.value = `${hh}:${mm}`;
+  }
+
+  function populateMinutes() {
+    const hSel = document.getElementById('res_hour');
+    const mSel = document.getElementById('res_minute');
+    if (!hSel || !mSel) return;
+
+    const minutes = buildMinuteOptions(hSel.value);
+    const prev = mSel.value; // try to preserve current minute
+    mSel.innerHTML = minutes.map(m => `<option value="${m}">${m}</option>`).join('');
+    // restore if still valid, else pick closest valid
+    if (minutes.includes(prev)) mSel.value = prev;
+    else mSel.value = minutes[minutes.length - 1];
+
+    syncTimeFromSelects();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const hSel = document.getElementById('res_hour');
+    const mSel = document.getElementById('res_minute');
+    const tInp = document.getElementById('res_time');
+
+    if (!hSel || !mSel || !tInp) return;
+
+    // Initialise from any existing res_time value (or default to 12:00)
+    let initH = '12', initM = '00';
+    if (tInp.value && /^\d{2}:\d{2}$/.test(tInp.value)) {
+      const [h, m] = tInp.value.split(':');
+      if (['12','13','14'].includes(h)) { initH = h; initM = m; }
+    }
+    hSel.value = initH;
+    populateMinutes();         // fills minute options based on hour
+    mSel.value = initM;        // try to set saved minute (will be clamped if 14:>30)
+    syncTimeFromSelects();
+
+    // React to changes
+    hSel.addEventListener('change', populateMinutes);
+    mSel.addEventListener('change', syncTimeFromSelects);
+  });
+})();
+</script>
+<script>
+(function attachNextHandler(){
+  function bind() {
+    const btn    = document.getElementById('btn-build');
+    const dateEl = document.getElementById('res_date');
+    const timeEl = document.getElementById('res_time');    // hidden input
+    const pplEl  = document.getElementById('res_people');
+    const hSel   = document.getElementById('res_hour');
+    const mSel   = document.getElementById('res_minute');
+
+    if (!btn || !dateEl || !timeEl || !pplEl) return false;
+
+    // If date empty (or outside window), default to min (season start)
+    const minDate = dateEl.getAttribute('min') || '2025-11-24';
+    const maxDate = dateEl.getAttribute('max') || '2025-12-24';
+    if (!dateEl.value || dateEl.value < minDate || dateEl.value > maxDate) {
+      dateEl.value = minDate;
+    }
+
+    // Ensure hidden time is populated from selects (and clamped for 14:xx)
+    function ensureTimeValue() {
+      if (hSel && mSel) {
+        let hh = (hSel.value || '12').padStart(2,'0');
+        let mm = (mSel.value || '00').padStart(2,'0');
+        if (hh === '14' && Number(mm) > 30) mm = '30';
+        timeEl.value = `${hh}:${mm}`;
+      }
+    }
+    ensureTimeValue();
+
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+
+      ensureTimeValue();
+
+      const dateISO  = dateEl.value || '';
+      const timeHHMM = timeEl.value || '';
+      const people   = Number(pplEl.value || 0);
+
+      if (!dateISO)  return alert('Please choose a date.');
+      if (!timeHHMM) return alert('Please choose a time.');
+      if (!people)   return alert('Enter number of people.');
+
+      try {
+        const a = await checkAvailability(dateISO, timeHHMM, people); // uses your JSONP function
+        if (!a || a.ok === false || a.canBook === false) {
+          const reasons = (a && (a.details?.reasons || a.reasons)) || [a?.error || 'Not available'];
+          alert(reasons.join('\n'));
+          return;
+        }
+        // Success -> build forms (your function reads #res_people itself)
+        if (typeof buildGuestForms === 'function') {
+          buildGuestForms();
+        } else {
+          // wait once for the app to finish initializing
+          await new Promise(resolve => {
+            document.addEventListener('app-ready', resolve, { once: true });
+          });
+          if (typeof buildGuestForms === 'function') buildGuestForms();
+          else console.warn('buildGuestForms() still not available.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Could not check availability. Please try again.');
+      }
+    });
+
+    return true;
+  }
+
+  // Bind now; if DOM not yet ready for some reason, bind on DOMContentLoaded as a fallback
+  if (!bind()) document.addEventListener('DOMContentLoaded', bind, { once:true });
+})();
+</script>
+</body>
+</html>
