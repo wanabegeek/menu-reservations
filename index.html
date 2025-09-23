@@ -36,8 +36,12 @@
       <label>Number of People<input id="res_people" type="number" min="1" value="1" /></label>
     </div>
     <div class="row row-2" style="margin-top:8px">
-      <label>Date<input id="res_date" type="date" /></label>
-      <label>Time<input id="res_time" type="time" /></label>
+     <label>Date
+       <input id="res_date" type="date" min="2025-11-24" max="2025-12-24" />
+     </label>
+     <label>Time
+        <input id="res_time" type="time" min="12:00" max="14:30" step="900" />
+     </label>
     </div>
     <div style="margin-top:10px">
       <button id="btn-build" class="btn-dark">Next</button>
@@ -171,7 +175,6 @@
   function bind(){
     var d = document.getElementById('res_date'); if(d && !d.value) d.value = todayStr();
     var b1 = document.getElementById('btn-build'); var b2 = document.getElementById('btn-submit');
-    if(b1) b1.addEventListener('click', function(){ try{ buildGuestForms(); }catch(e){ alert('Error: '+e); } });
     if(b2) b2.addEventListener('click', async function(){
       var res = collectReservation();
       var errs = validate(res);
@@ -206,11 +209,10 @@ async function checkAvailability(dateISO, timeHHMM, people) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Update these IDs ONLY if yours are different
   const btn    = document.getElementById('btn-build');
-  const dateEl = document.getElementById('date');
-  const timeEl = document.getElementById('time');
-  const pplEl  = document.getElementById('people');
+  const dateEl = document.getElementById('res_date');   // <-- FIXED
+  const timeEl = document.getElementById('res_time');   // <-- FIXED
+  const pplEl  = document.getElementById('res_people'); // <-- FIXED
 
   if (!btn) { console.error('btn-build not found'); return; }
 
@@ -226,22 +228,17 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!a.ok || !a.canBook) {
         const reasons = (a.details?.reasons || a.reasons || ['Not available']).join('\n');
         alert(reasons);
-        return; // stop here; do NOT build forms
+        return; // do NOT build forms
       }
-
-      // Availability OK -> proceed with your existing flow
-      // This calls whatever you already use to build the per-guest rows
-      if (typeof buildGuestForms === 'function') {
-        buildGuestForms(people);
-      } else {
-        console.warn('buildGuestForms(...) is not defined.');
-      }
+      // OK — now build forms
+      buildGuestForms(); // no param needed; your function reads res_people itself
     } catch (err) {
       alert('Could not check availability. Please try again.');
       console.error(err);
     }
   });
 });
+
 </script>
 
 </body>
