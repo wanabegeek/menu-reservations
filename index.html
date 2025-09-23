@@ -40,7 +40,7 @@
       <label>Time<input id="res_time" type="time" /></label>
     </div>
     <div style="margin-top:10px">
-      <button id="btn-build" class="btn-dark">Build Guest Forms</button>
+      <button id="btn-build" class="btn-dark">Next</button>
     </div>
     <p class="muted" style="margin-top:8px">Each person must choose at least two sections (starter/main/dessert) and at most one per section.</p>
   </div>
@@ -61,7 +61,7 @@
   function setStatus(t){ if(statusEl) statusEl.textContent = ' — ' + t; }
   setStatus('initialising');
 
-  // UPDATE THIS to your proxy (Worker/Netlify). If you do not have one yet, it can point directly to Apps Script but fetch may be blocked by CORS.
+  // proxy (Worker). 
   var ENDPOINT = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
 
   var guestsEl = document.getElementById('guests');
@@ -86,6 +86,7 @@
   function makeInput(cls, placeholder){ var i=document.createElement('input'); i.className=cls; if(placeholder) i.placeholder=placeholder; i.style.marginTop='4px'; return i; }
   function makeSelect(cls, options){ var s=document.createElement('select'); s.className=cls; s.style.marginTop='4px'; for(var k=0;k<options.length;k++){ var opt=document.createElement('option'); opt.value=options[k]; opt.textContent=options[k]; s.appendChild(opt);} return s; }
 
+  
   function buildGuestForms(){
     var n = Math.max(1, parseInt(document.getElementById('res_people').value || '1', 10));
     guestsEl.innerHTML = '';
@@ -185,5 +186,63 @@
   if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
 })();
 </script>
+  <script>
+/** POINT THIS at your endpoint:
+ *  - If you use the Cloudflare Worker proxy, use that URL.
+ *  - Otherwise you can use your Apps Script /exec URL directly.
+ */
+const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/'; // <-- or your GAS /exec
+
+async function checkAvailability(dateISO, timeHHMM, people) {
+  const u = new URL(API_BASE);
+  u.searchParams.set('action','availability');
+  u.searchParams.set('date', dateISO);   // 'YYYY-MM-DD' from <input type="date">
+  u.searchParams.set('time', timeHHMM);  // 'HH:MM'      from <input type="time">
+  u.searchParams.set('people', String(people));
+
+  const res = await fetch(u.toString(), { method: 'GET' });
+  if (!res.ok) throw new Error('Network error');
+  return res.json();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Update these IDs ONLY if yours are different
+  const btn    = document.getElementById('btn-build');
+  const dateEl = document.getElementById('date');
+  const timeEl = document.getElementById('time');
+  const pplEl  = document.getElementById('people');
+
+  if (!btn) { console.error('btnBuildGuestForms not found'); return; }
+
+  btn.addEventListener('click', async (e) => {
+    e.preventDefault();
+
+    const dateISO   = dateEl?.value || '';
+    const timeHHMM  = timeEl?.value || '';
+    const people    = Number(pplEl?.value || 0);
+
+    try {
+      const a = await checkAvailability(dateISO, timeHHMM, people);
+      if (!a.ok || !a.canBook) {
+        const reasons = (a.details?.reasons || a.reasons || ['Not available']).join('\n');
+        alert(reasons);
+        return; // stop here; do NOT build forms
+      }
+
+      // Availability OK -> proceed with your existing flow
+      // This calls whatever you already use to build the per-guest rows
+      if (typeof buildGuestForms === 'function') {
+        buildGuestForms(people);
+      } else {
+        console.warn('buildGuestForms(...) is not defined.');
+      }
+    } catch (err) {
+      alert('Could not check availability. Please try again.');
+      console.error(err);
+    }
+  });
+});
+</script>
+
 </body>
 </html>
