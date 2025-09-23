@@ -207,26 +207,38 @@
   if(errs.length){ alert('Please fix the following:\n\n' + errs.join('\n')); return; }
   store.upsert(res);
   var ack = await serverCreate(res);
-  if(ack && ack.ok){
-    // Show thank you message
-    alert('Form submitted, thank you!');
-    // Clear the form
-    document.getElementById('res_name').value = '';
-    document.getElementById('res_contact').value = '';
-    document.getElementById('res_date').value = '';
-    document.getElementById('res_time').value = '';
-    document.getElementById('res_people').value = '1';
-    document.getElementById('guests').innerHTML = '';
-    // Optionally, reset hour/minute selects
-    document.getElementById('res_hour').value = '12';
-    if(document.getElementById('res_minute')) {
-      document.getElementById('res_minute').innerHTML = '';
-    }
+
+  // Show thank you message regardless
+  alert('Form submitted, thank you!');
+
+  // Clear the form
+  document.getElementById('res_name').value = '';
+  document.getElementById('res_contact').value = '';
+  document.getElementById('res_date').value = '';
+  document.getElementById('res_time').value = '';
+  document.getElementById('res_people').value = '1';
+  document.getElementById('guests').innerHTML = '';
+  // Reset hour/minute selects
+  document.getElementById('res_hour').value = '12';
+  if(document.getElementById('res_minute')) {
+    // Rebuild minute options
+    const mSel = document.getElementById('res_minute');
+    mSel.innerHTML = '';
+    const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+    minutes.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      mSel.appendChild(opt);
+    });
+    mSel.value = '00';
   }
-  else {
+
+  if(!ack || !ack.ok){
     alert('Saved locally. Could not submit to server right now.');
     if(ack && ack.error){
       showDebug('Submit error: ' + JSON.stringify(ack));
+      console.error('Submit error:', ack);
     }
   }
 });
