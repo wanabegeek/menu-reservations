@@ -121,9 +121,8 @@
 
       guestsEl.appendChild(card);
     }
-    // make it callable from other scripts
+   // make available to other scripts
 window.buildGuestForms = buildGuestForms;
-// optional signal for listeners
 document.dispatchEvent(new Event('app-ready'));
 
     alert('Built ' + n + ' guest form(s)');
@@ -221,8 +220,8 @@ function jsonp(url, params = {}, timeoutMs = 8000) {
 
     let timer;
     function cleanup() {
-      try { s.remove(); } catch {}
-      try { delete window[cb]; } catch {}
+      try { s.remove(); } catch (e) {}
+      try { delete window[cb]; } catch (e) {}
       if (timer) clearTimeout(timer);
     }
 
