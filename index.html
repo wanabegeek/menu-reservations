@@ -307,6 +307,72 @@ async function checkAvailability(dateISO, timeHHMM, people) {
   });
 })();
 </script>
+<script>
+(function attachNextHandler(){
+  function bind() {
+    const btn    = document.getElementById('btn-build');
+    const dateEl = document.getElementById('res_date');
+    const timeEl = document.getElementById('res_time');    // hidden input
+    const pplEl  = document.getElementById('res_people');
+    const hSel   = document.getElementById('res_hour');
+    const mSel   = document.getElementById('res_minute');
+
+    if (!btn || !dateEl || !timeEl || !pplEl) return false;
+
+    // If date empty (or outside window), default to min (season start)
+    const minDate = dateEl.getAttribute('min') || '2025-11-24';
+    const maxDate = dateEl.getAttribute('max') || '2025-12-24';
+    if (!dateEl.value || dateEl.value < minDate || dateEl.value > maxDate) {
+      dateEl.value = minDate;
+    }
+
+    // Ensure hidden time is populated from selects (and clamped for 14:xx)
+    function ensureTimeValue() {
+      if (hSel && mSel) {
+        let hh = (hSel.value || '12').padStart(2,'0');
+        let mm = (mSel.value || '00').padStart(2,'0');
+        if (hh === '14' && Number(mm) > 30) mm = '30';
+        timeEl.value = `${hh}:${mm}`;
+      }
+    }
+    ensureTimeValue();
+
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+
+      ensureTimeValue();
+
+      const dateISO  = dateEl.value || '';
+      const timeHHMM = timeEl.value || '';
+      const people   = Number(pplEl.value || 0);
+
+      if (!dateISO)  return alert('Please choose a date.');
+      if (!timeHHMM) return alert('Please choose a time.');
+      if (!people)   return alert('Enter number of people.');
+
+      try {
+        const a = await checkAvailability(dateISO, timeHHMM, people); // uses your JSONP function
+        if (!a || a.ok === false || a.canBook === false) {
+          const reasons = (a && (a.details?.reasons || a.reasons)) || [a?.error || 'Not available'];
+          alert(reasons.join('\n'));
+          return;
+        }
+        // Success -> build forms (your function reads #res_people itself)
+        if (typeof buildGuestForms === 'function') buildGuestForms();
+        else console.warn('buildGuestForms() not found');
+      } catch (err) {
+        console.error(err);
+        alert('Could not check availability. Please try again.');
+      }
+    });
+
+    return true;
+  }
+
+  // Bind now; if DOM not yet ready for some reason, bind on DOMContentLoaded as a fallback
+  if (!bind()) document.addEventListener('DOMContentLoaded', bind, { once:true });
+})();
+</script>
 
 </body>
 </html>
