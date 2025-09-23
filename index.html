@@ -203,27 +203,20 @@
 })();
 </script>
   <script>
-const API_BASE = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
+// Use your direct GAS /exec URL for availability:
 const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
 
-// Try Worker POST first; if response shape is wrong, fall back to direct GAS GET.
 async function checkAvailability(dateISO, timeHHMM, people) {
-  try {
-    const payload = JSON.stringify({ action: 'availability', date: dateISO, time: timeHHMM, people });
-    const r = await fetch(API_BASE, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: payload });
-    const text = await r.text();
-    let data = {};
-    try { data = JSON.parse(text); } catch {}
-    if (data && typeof data.canBook === 'boolean') return data;
-  } catch {}
   const u = new URL(GAS_EXEC);
   u.searchParams.set('action','availability');
   u.searchParams.set('date', dateISO);
   u.searchParams.set('time', timeHHMM);
   u.searchParams.set('people', String(people));
-  const r2 = await fetch(u.toString(), { method: 'GET' });
-  return r2.json();
+  const r = await fetch(u.toString(), { method: 'GET' });
+  if (!r.ok) throw new Error('Network error');
+  return r.json();
 }
+
 
 // Robust bind: run now; if DOM not ready, fall back to DOMContentLoaded
 (function attachAvailabilityGuard(){
