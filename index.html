@@ -121,9 +121,9 @@
 
       guestsEl.appendChild(card);
     }
-   // make available to other scripts
-window.buildGuestForms = buildGuestForms;
+  window.buildGuestForms = buildGuestForms;
 document.dispatchEvent(new Event('app-ready'));
+
 
     alert('Built ' + n + ' guest form(s)');
   }
@@ -378,6 +378,106 @@ async function checkAvailability(dateISO, timeHHMM, people) {
   }
 
   // Bind now; if DOM not yet ready for some reason, bind on DOMContentLoaded as a fallback
+  if (!bind()) document.addEventListener('DOMContentLoaded', bind, { once:true });
+})();
+</script>
+<script>
+/* ===== JSONP helper (no bare catch) ===== */
+const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbwU7l5we6UwcmxZWo8tnBhzQ4iHlk1Ikx84L0r9cgSYwIpNShrjm1CsmhqB9e7jIwzS5w/exec';
+
+function jsonp(url, params = {}, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const cb = 'cb_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const u = new URL(url);
+    for (const [k,v] of Object.entries(params)) u.searchParams.set(k, v);
+    u.searchParams.set('callback', cb);
+
+    let timer;
+    function cleanup() {
+      try { s.remove(); } catch (e) {}
+      try { delete window[cb]; } catch (e) {}
+      if (timer) clearTimeout(timer);
+    }
+
+    window[cb] = (data) => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('JSONP network error')); };
+
+    timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
+    s.src = u.toString();
+    document.head.appendChild(s);
+  });
+}
+
+async function checkAvailability(dateISO, timeHHMM, people) {
+  const params = { action: 'availability', date: dateISO, time: timeHHMM, people: String(people) };
+  return jsonp(GAS_EXEC, params);
+}
+
+/* ===== Attach guarded Next handler ===== */
+(function attachNextHandler(){
+  function bind() {
+    const btn    = document.getElementById('btn-build');
+    const dateEl = document.getElementById('res_date');
+    const timeEl = document.getElementById('res_time');    // hidden input
+    const pplEl  = document.getElementById('res_people');
+    const hSel   = document.getElementById('res_hour');
+    const mSel   = document.getElementById('res_minute');
+
+    if (!btn || !dateEl || !timeEl || !pplEl) return false;
+
+    // default date into allowed window
+    const minDate = dateEl.getAttribute('min') || '2025-11-24';
+    const maxDate = dateEl.getAttribute('max') || '2025-12-24';
+    if (!dateEl.value || dateEl.value < minDate || dateEl.value > maxDate) {
+      dateEl.value = minDate;
+    }
+
+    function ensureTimeValue() {
+      if (hSel && mSel) {
+        let hh = (hSel.value || '12').padStart(2,'0');
+        let mm = (mSel.value || '00').padStart(2,'0');
+        if (hh === '14' && Number(mm) > 30) mm = '30';
+        timeEl.value = `${hh}:${mm}`;
+      }
+    }
+    ensureTimeValue();
+
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      ensureTimeValue();
+
+      const dateISO  = dateEl.value || '';
+      const timeHHMM = timeEl.value || '';
+      const people   = Number(pplEl.value || 0);
+      if (!dateISO)  return alert('Please choose a date.');
+      if (!timeHHMM) return alert('Please choose a time.');
+      if (!people)   return alert('Enter number of people.');
+
+      try {
+        const a = await checkAvailability(dateISO, timeHHMM, people);
+        if (!a || a.ok === false || a.canBook === false) {
+          const reasons = (a && (a.details?.reasons || a.reasons)) || [a?.error || 'Not available'];
+          alert(reasons.join('\n'));
+          return;
+        }
+        if (typeof window.buildGuestForms === 'function') {
+          window.buildGuestForms();
+        } else {
+          // wait for the first script to export it
+          await new Promise(res => document.addEventListener('app-ready', res, { once:true }));
+          if (typeof window.buildGuestForms === 'function') window.buildGuestForms();
+          else alert('Page not ready yet. Please try again.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Could not check availability. Please try again.');
+      }
+    });
+
+    return true;
+  }
+
   if (!bind()) document.addEventListener('DOMContentLoaded', bind, { once:true });
 })();
 </script>
