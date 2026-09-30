@@ -39,7 +39,7 @@
     </div>
     <div class="row row-2" style="margin-top:8px">
      <label for="res_date">Date
-       <input id="res_date" type="date" min="2025-11-24" max="2025-12-24" />
+       <input id="res_date" type="date" min="2026-11-23" max="2026-12-24" />
      </label>
     <label class="inline-row" for="res_hour">
       <span>Time</span>
@@ -94,9 +94,9 @@
   };
 
   var DISHES = {
-    starter: ['', 'Soup', 'Salmon', 'Antipasto'],
-    main: ['', 'Turkey', 'Haddock', 'Beef Ragu', 'Aubergine'],
-    dessert: ['', 'Xmas Pudding', 'Gateaux', 'Vegan Tart']
+    starter: ['', 'Soup', 'Pate', 'Parma Ham, Pear & Rocket'],
+    main: ['', 'Turkey', 'Haddock', 'Mushroom Tagliatelle', 'Cauliflower'],
+    dessert: ['', 'Cheesecake', 'Bread & Butter Pudding', 'Chocolate & Orange Mousse']
   };
 
   function makeLabel(text){ var l=document.createElement('label'); l.textContent=text; l.appendChild(document.createElement('br')); return l; }
@@ -366,8 +366,8 @@ async function checkAvailability(dateISO, timeHHMM, people) {
     if (!btn || !dateEl || !timeEl || !pplEl) return false;
 
     // If date empty (or outside window), default to min (season start)
-    const minDate = dateEl.getAttribute('min') || '2025-11-24';
-    const maxDate = dateEl.getAttribute('max') || '2025-12-24';
+    const minDate = dateEl.getAttribute('min') || '2026-11-23';
+    const maxDate = dateEl.getAttribute('max') || '2026-12-24';
     if (!dateEl.value || dateEl.value < minDate || dateEl.value > maxDate) {
       dateEl.value = minDate;
     }
