@@ -19,7 +19,12 @@
   .btn-dark{background:#0f172a;color:#fff}
   .btn-red{background:#e11d48;color:#fff}
   .muted{color:#64748b;font-size:12px}
-  #debug{font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;white-space:pre-wrap}
+  #feedback{white-space:pre-line}
+  .error{border-color:#be123c;color:#9f1239}
+  button:disabled{opacity:.6;cursor:wait}
+  .row > label{min-width:0}
+  .row input,.row select{box-sizing:border-box;max-width:100%}
+  .person-card input,.person-card select{display:block;width:100%;margin-top:4px}
 </style>
 </head>
 <body>
@@ -35,25 +40,19 @@
     <div class="row row-3">
       <label for="res_name">Reservation Name <input id="res_name" placeholder="Smith" /></label>
       <label for="res_contact">Contact Details <input id="res_contact" placeholder="email or phone" /></label>
-      <label for="res_people">Number of People <input id="res_people" type="number" min="1" value="1" /></label>
+      <label for="res_people">Number of People <input id="res_people" type="number" min="1" step="1" value="1" /></label>
     </div>
     <div class="row row-2" style="margin-top:8px">
      <label for="res_date">Date
-       <input id="res_date" type="date" min="2026-11-23" max="2026-12-24" />
+       <input id="res_date" type="date" />
      </label>
     <label class="inline-row" for="res_hour">
       <span>Time</span>
       <div class="controls" style="margin-top:4px">
-        <select id="res_hour">
-          <option value="12">12</option>
-          <option value="13">13</option>
-          <option value="14">14</option>
-        </select>
+        <select id="res_hour" aria-label="Hour"></select>
         <span>:</span>
-        <select id="res_minute"></select>
+        <select id="res_minute" aria-label="Minute"></select>
       </div>
-    <!-- keep hidden native time for existing JS -->
-    <input id="res_time" type="time" min="12:00" max="14:30" step="300" hidden />
     </label>
     </div>
     <div style="margin-top:10px">
@@ -68,364 +67,199 @@
     <button id="btn-submit" class="btn-red" type="button">Submit</button>
   </div>
 
-  <div id="debug" class="card" style="display:none"></div>
+  <div id="feedback" class="card" role="status" aria-live="polite" hidden></div>
+  <noscript>Please enable JavaScript to make a reservation.</noscript>
 </main>
 
-<script defer>
-(function(){
+<script>
+(() => {
   'use strict';
-  var statusEl = document.getElementById('status');
-  function setStatus(t){ if(statusEl) statusEl.textContent = ' — ' + t; }
-  setStatus('initialising');
 
-  // proxy (Worker). 
-  var ENDPOINT = 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/';
-
-  var guestsEl = document.getElementById('guests');
-  function uid(){ return 'r' + Math.random().toString(36).slice(2) + Date.now(); }
-  function todayStr(){ return new Date().toISOString().slice(0,10); }
-
-  var store = {
-    key: 'reservations_v1',
-    all: function(){ try { return JSON.parse(localStorage.getItem(this.key)||'[]'); } catch(e){ return []; } },
-    save: function(list){ localStorage.setItem(this.key, JSON.stringify(list)); },
-    upsert: function(res){ var list = this.all(); var i = -1, j; for(j=0;j<list.length;j++){ if(list[j].id===res.id){ i=j; break; } }
-      if(i>-1) list[i]=res; else list.push(res); this.save(list); return res.id; }
+  // Update this section for each season. Keep the existing backend payload format.
+  const CONFIG = {
+    startDate: '2026-11-23', endDate: '2026-12-24',
+    openingTime: '12:00', closingTime: '14:30', intervalMinutes: 5,
+    dishes: {
+      starter: ['Soup', 'Pate', 'Parma Ham, Pear & Rocket'],
+      main: ['Turkey', 'Haddock', 'Mushroom Tagliatelle', 'Cauliflower'],
+      dessert: ['Cheesecake', 'Bread & Butter Pudding', 'Chocolate & Orange Mousse']
+    },
+    endpoint: 'https://menu-reservations-worker.neil-kennedy2207.workers.dev/',
+    availabilityEndpoint: 'https://script.google.com/macros/s/AKfycbyDyDyVPkzfUFMYX1bGs1G9Y-mKSJFatIJ0hY5wKA1YdkkiHFPt0F0Uf1ie723alBY7UQ/exec'
   };
+  const $ = id => document.getElementById(id);
+  const courses = Object.keys(CONFIG.dishes);
+  const guestCards = [];
+  let busy = false;
+  let checkedSlot = '';
+  let attempt = null;
 
-  var DISHES = {
-    starter: ['', 'Soup', 'Pate', 'Parma Ham, Pear & Rocket'],
-    main: ['', 'Turkey', 'Haddock', 'Mushroom Tagliatelle', 'Cauliflower'],
-    dessert: ['', 'Cheesecake', 'Bread & Butter Pudding', 'Chocolate & Orange Mousse']
-  };
-
-  function makeLabel(text){ var l=document.createElement('label'); l.textContent=text; l.appendChild(document.createElement('br')); return l; }
-  function makeInput(cls, placeholder){ var i=document.createElement('input'); i.className=cls; if(placeholder) i.placeholder=placeholder; i.style.marginTop='4px'; return i; }
-  function makeSelect(cls, options){
-    var s = document.createElement('select');
-    s.className = cls;
-    s.style.marginTop = '4px';
-    for(var k = 0; k < options.length; k++){
-      var opt = document.createElement('option');
-      opt.value = options[k];
-      opt.textContent = options[k];
-      s.appendChild(opt);
-    }
-    return s;
+  function message(text, error = false) {
+    $('feedback').textContent = text;
+    $('feedback').className = error ? 'card error' : 'card';
+    $('feedback').hidden = !text;
   }
-
-  function buildGuestForms(){
-    var n = Math.max(1, parseInt(document.getElementById('res_people').value || '1', 10));
-    guestsEl.innerHTML = '';
-    for(var i=0;i<n;i++){
-      var card = document.createElement('div'); card.className='card person-card';
-      var h = document.createElement('h4'); h.textContent = 'Person ' + (i+1); card.appendChild(h);
-
-      var grid = document.createElement('div'); grid.className='row row-5'; card.appendChild(grid);
-
-      var l1 = makeLabel('Name'); var nameIn = makeInput('person-name','Full name'); l1.appendChild(nameIn); grid.appendChild(l1);
-      var l2 = makeLabel('Starter'); var selS = makeSelect('sel-starter', DISHES.starter); l2.appendChild(selS); grid.appendChild(l2);
-      var l3 = makeLabel('Main'); var selM = makeSelect('sel-main', DISHES.main); l3.appendChild(selM); grid.appendChild(l3);
-      var l4 = makeLabel('Dessert'); var selD = makeSelect('sel-dessert', DISHES.dessert); l4.appendChild(selD); grid.appendChild(l4);
-      var l5 = makeLabel('Allergies / Dietary'); var notes = makeInput('person-notes','e.g., nuts, gluten-free'); l5.appendChild(notes); grid.appendChild(l5);
-
-      guestsEl.appendChild(card);
-    }
-    document.dispatchEvent(new Event('app-ready'));
-    alert('Built ' + n + ' guest form(s)');
+  function localToday() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   }
-  // --- THIS IS THE IMPORTANT FIX ---
-  window.buildGuestForms = buildGuestForms;
-
-  function collectReservation(){
-    var reservationName = (document.getElementById('res_name').value||'').trim();
-    var contact = (document.getElementById('res_contact').value||'').trim();
-    var date = document.getElementById('res_date').value||'';
-    var time = document.getElementById('res_time').value||'';
-    var people = parseInt(document.getElementById('res_people').value||'1',10);
-    var cards = guestsEl.querySelectorAll('.person-card');
-    var guests = [];
-    for(var i=0;i<cards.length;i++){
-      var card = cards[i];
-      guests.push({
-        name: (card.querySelector('.person-name').value||'').trim(),
-        starter: card.querySelector('.sel-starter').value,
-        main: card.querySelector('.sel-main').value,
-        dessert: card.querySelector('.sel-dessert').value,
-        notes: (card.querySelector('.person-notes').value||'').trim()
-      });
-    }
-    return { id: uid(), reservationName:reservationName, contact:contact, date:date, time:time, people:people, guests:guests, createdAt:new Date().toISOString() };
+  function minutes(time) {
+    const [h, m] = time.split(':').map(Number);
+    return h * 60 + m;
   }
-
-  function validate(res){
-    var errs=[]; var i;
-    if(!res.reservationName) errs.push('Reservation Name is required.');
-    if(!res.date) errs.push('Date is required.');
-    if(!res.time) errs.push('Time is required.');
-    if(!res.people || res.people<1) errs.push('Number of People must be at least 1.');
-    if(res.guests.length!==res.people) errs.push('Guest forms do not match the number of people. Click "Next" again.');
-    for(i=0;i<res.guests.length;i++){
-      var g = res.guests[i];
-      var count = 0; if(g.starter) count++; if(g.main) count++; if(g.dessert) count++;
-      if(!g.name) errs.push('Person ' + (i+1) + ': Name is required.');
-      if(count<2) errs.push('Person ' + (i+1) + ' (' + (g.name||'Unnamed') + '): must choose at least 2 courses.');
-      if(count>3) errs.push('Person ' + (i+1) + ' (' + (g.name||'Unnamed') + '): too many courses.');
-    }
-    return errs;
+  const slots = [];
+  for (let n = minutes(CONFIG.openingTime); n <= minutes(CONFIG.closingTime); n += CONFIG.intervalMinutes) {
+    slots.push(`${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`);
   }
-
-  function showDebug(msg){ var d=document.getElementById('debug'); d.style.display='block'; d.textContent = msg; }
-
-  async function serverCreate(res){
-    var payload = JSON.stringify({ action:'create', reservation: res });
-    // Try fetch() to proxy first
-    try{
-      var r = await fetch(ENDPOINT, {
-        method:'POST',
-        headers:{ 'Content-Type':'text/plain' },
-        body: payload
-      });
-      var text = await r.text();
-      try { return JSON.parse(text); } catch(e){ return { ok:false, error:'Bad JSON from proxy: ' + text }; }
-    } catch(err){
-      // Fallback: sendBeacon (fire-and-forget) — still records in Sheets but no JSON
-      try{
-        var ok = navigator.sendBeacon(ENDPOINT, new Blob([payload], {type:'text/plain'}));
-        if(ok) return { ok:true, id: res.id, mode:'beacon' };
-      }catch(e){}
-      return { ok:false, error:String(err&&err.message||err) };
-    }
+  function option(value, label = value) {
+    const el = document.createElement('option');
+    el.value = value; el.textContent = label;
+    return el;
   }
-
-  function bind(){
-    var d = document.getElementById('res_date'); if(d && !d.value) d.value = todayStr();
-    var b1 = document.getElementById('btn-build'); var b2 = document.getElementById('btn-submit');
-    if(b2) b2.addEventListener('click', async function(){
-  var res = collectReservation();
-  var errs = validate(res);
-  if(errs.length){ alert('Please fix the following:\n\n' + errs.join('\n')); return; }
-  store.upsert(res);
-  var ack = await serverCreate(res);
-
-  // Show thank you message regardless
-  alert('Form submitted, thank you!');
-
-  // Clear the form
-  document.getElementById('res_name').value = '';
-  document.getElementById('res_contact').value = '';
-  document.getElementById('res_date').value = '';
-  document.getElementById('res_time').value = '';
-  document.getElementById('res_people').value = '1';
-  document.getElementById('guests').innerHTML = '';
-  // Reset hour/minute selects
-  document.getElementById('res_hour').value = '12';
-  if(document.getElementById('res_minute')) {
-    // Rebuild minute options
-    const mSel = document.getElementById('res_minute');
-    mSel.innerHTML = '';
-    const minutes = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
-    minutes.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m;
-      opt.textContent = m;
-      mSel.appendChild(opt);
+  function updateMinutes() {
+    const previous = $('res_minute').value || '00';
+    const allowed = slots.filter(t => t.startsWith($('res_hour').value + ':')).map(t => t.slice(3));
+    $('res_minute').replaceChildren(...allowed.map(m => option(m)));
+    $('res_minute').value = allowed.includes(previous) ? previous : allowed[allowed.length - 1];
+  }
+  function details() {
+    return {
+      reservationName: $('res_name').value.trim(), contact: $('res_contact').value.trim(),
+      date: $('res_date').value, time: `${$('res_hour').value}:${$('res_minute').value}`,
+      people: Number($('res_people').value)
+    };
+  }
+  function slotKey(res) { return JSON.stringify([res.date, res.time, res.people]); }
+  function validateDetails(res, full = false) {
+    const errors = [];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(res.date) || res.date < CONFIG.startDate || res.date > CONFIG.endDate || res.date < localToday()) {
+      errors.push('Choose a remaining date between 23 November and 24 December 2026.');
+    }
+    if (!slots.includes(res.time)) errors.push('Choose a service time between 12:00 and 14:30.');
+    if (!Number.isSafeInteger(res.people) || res.people < 1) errors.push('Enter a whole number of people, at least 1.');
+    if (full && !res.reservationName) errors.push('Enter a reservation name.');
+    if (full && !res.contact) errors.push('Enter a contact email address or phone number.');
+    return errors;
+  }
+  function guestCard(index) {
+    const card = document.createElement('div'); card.className = 'card person-card';
+    const title = document.createElement('h3'); title.textContent = `Person ${index + 1}`;
+    const grid = document.createElement('div'); grid.className = 'row row-5';
+    for (const [key, titleText] of [['name', 'Name'], ['starter', 'Starter'], ['main', 'Main'], ['dessert', 'Dessert'], ['notes', 'Allergies / Dietary']]) {
+      const label = document.createElement('label'); label.textContent = titleText;
+      const input = document.createElement(courses.includes(key) ? 'select' : 'input');
+      input.dataset.field = key;
+      if (courses.includes(key)) input.replaceChildren(option('', 'No selection'), ...CONFIG.dishes[key].map(d => option(d)));
+      else input.placeholder = key === 'name' ? 'Full name' : 'e.g., nuts, gluten-free';
+      label.appendChild(input); grid.appendChild(label);
+    }
+    card.append(title, grid); return card;
+  }
+  function buildGuests(count) {
+    // Reuse cards, including temporarily removed guests, so changing the count loses no choices.
+    while (guestCards.length < count) guestCards.push(guestCard(guestCards.length));
+    $('guests').replaceChildren(...guestCards.slice(0, count));
+  }
+  function collectGuests() {
+    return Array.from($('guests').children, card => Object.fromEntries(
+      Array.from(card.querySelectorAll('[data-field]'), input => [input.dataset.field, input.value.trim()])
+    ));
+  }
+  function validateGuests(res) {
+    const errors = [];
+    if (res.guests.length !== res.people) errors.push('Click Next to update the guest forms for your party size.');
+    res.guests.forEach((guest, i) => {
+      if (!guest.name) errors.push(`Person ${i + 1}: enter a name.`);
+      if (courses.filter(c => guest[c]).length < 2) errors.push(`Person ${i + 1}: choose at least two courses.`);
+      if (courses.some(c => guest[c] && !CONFIG.dishes[c].includes(guest[c]))) errors.push(`Person ${i + 1}: choose dishes from the current menu.`);
     });
-    mSel.value = '00';
+    return errors;
   }
-
-  if(!ack || !ack.ok){
-    alert('Saved locally. Could not submit to server right now.');
-    if(ack && ack.error){
-      showDebug('Submit error: ' + JSON.stringify(ack));
-      console.error('Submit error:', ack);
-    }
+  function setBusy(value) {
+    busy = value;
+    document.querySelectorAll('input, select, button').forEach(el => { el.disabled = value; });
+    $('btn-submit').disabled = value || !$('guests').children.length;
+    $('status').textContent = value ? ' — Please wait…' : '';
   }
-});
-    setStatus('ready');
-  }
-  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
-})();
-</script>
-<!-- No changes needed to the other script blocks -->
-<script>
-const GAS_EXEC = 'https://script.google.com/macros/s/AKfycbyDyDyVPkzfUFMYX1bGs1G9Y-mKSJFatIJ0hY5wKA1YdkkiHFPt0F0Uf1ie723alBY7UQ/exec';
-
-/** JSONP promise helper */
-function jsonp(url, params = {}, timeoutMs = 8000) {
-  return new Promise((resolve, reject) => {
-    const cb = 'cb_' + Math.random().toString(36).slice(2);
-    const s = document.createElement('script');
-    const u = new URL(url);
-    for (const [k,v] of Object.entries(params)) u.searchParams.set(k, v);
-    u.searchParams.set('callback', cb);
-
-    let timer;
-    function cleanup() {
-      try { s.remove(); } catch (e) {}
-      try { delete window[cb]; } catch (e) {}
-      if (timer) clearTimeout(timer);
-    }
-
-    window[cb] = (data) => { cleanup(); resolve(data); };
-    s.onerror = () => { cleanup(); reject(new Error('JSONP network error')); };
-
-    timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs);
-    s.src = u.toString();
-    document.head.appendChild(s);
-  });
-}
-
-/** Availability via JSONP (bypasses CORS + 302) */
-async function checkAvailability(dateISO, timeHHMM, people) {
-  const params = {
-    action: 'availability',
-    date: dateISO,
-    time: timeHHMM,
-    people: String(people)
-  };
-  return jsonp(GAS_EXEC, params);
-}
-</script>
-
-<script>
-(function(){
-  // Build 5-minute minute options, constrained if hour === '14'
-  function buildMinuteOptions(hour) {
-    const max = (hour === '14') ? 30 : 55;
-    const mins = [];
-    for (let m = 0; m <= max; m += 5) mins.push(m.toString().padStart(2,'0'));
-    return mins;
-  }
-
-  function syncTimeFromSelects() {
-    const hSel = document.getElementById('res_hour');
-    const mSel = document.getElementById('res_minute');
-    const tInp = document.getElementById('res_time');
-    if (!hSel || !mSel || !tInp) return;
-
-    // If hour is 14 and minute > 30, clamp to 30
-    if (hSel.value === '14' && Number(mSel.value) > 30) {
-      mSel.value = '30';
-    }
-
-    const hh = hSel.value.padStart(2,'0');
-    const mm = (mSel.value || '00').padStart(2,'0');
-    tInp.value = `${hh}:${mm}`;
-  }
-
-  function populateMinutes() {
-    const hSel = document.getElementById('res_hour');
-    const mSel = document.getElementById('res_minute');
-    if (!hSel || !mSel) return;
-
-    const minutes = buildMinuteOptions(hSel.value);
-    const prev = mSel.value; // try to preserve current minute
-    mSel.innerHTML = minutes.map(m => `<option value="${m}">${m}</option>`).join('');
-    // restore if still valid, else pick closest valid
-    if (minutes.includes(prev)) mSel.value = prev;
-    else mSel.value = minutes[minutes.length - 1];
-
-    syncTimeFromSelects();
-  }
-
-  document.addEventListener('DOMContentLoaded', () => {
-    const hSel = document.getElementById('res_hour');
-    const mSel = document.getElementById('res_minute');
-    const tInp = document.getElementById('res_time');
-
-    if (!hSel || !mSel || !tInp) return;
-
-    // Initialise from any existing res_time value (or default to 12:00)
-    let initH = '12', initM = '00';
-    if (tInp.value && /^\d{2}:\d{2}$/.test(tInp.value)) {
-      const [h, m] = tInp.value.split(':');
-      if (['12','13','14'].includes(h)) { initH = h; initM = m; }
-    }
-    hSel.value = initH;
-    populateMinutes();         // fills minute options based on hour
-    mSel.value = initM;        // try to set saved minute (will be clamped if 14:>30)
-    syncTimeFromSelects();
-
-    // React to changes
-    hSel.addEventListener('change', populateMinutes);
-    mSel.addEventListener('change', syncTimeFromSelects);
-  });
-})();
-</script>
-<script>
-(function attachNextHandler(){
-  function bind() {
-    const btn    = document.getElementById('btn-build');
-    const dateEl = document.getElementById('res_date');
-    const timeEl = document.getElementById('res_time');    // hidden input
-    const pplEl  = document.getElementById('res_people');
-    const hSel   = document.getElementById('res_hour');
-    const mSel   = document.getElementById('res_minute');
-
-    if (!btn || !dateEl || !timeEl || !pplEl) return false;
-
-    // If date empty (or outside window), default to min (season start)
-    const minDate = dateEl.getAttribute('min') || '2026-11-23';
-    const maxDate = dateEl.getAttribute('max') || '2026-12-24';
-    if (!dateEl.value || dateEl.value < minDate || dateEl.value > maxDate) {
-      dateEl.value = minDate;
-    }
-
-    // Ensure hidden time is populated from selects (and clamped for 14:xx)
-    function ensureTimeValue() {
-      if (hSel && mSel) {
-        let hh = (hSel.value || '12').padStart(2,'0');
-        let mm = (mSel.value || '00').padStart(2,'0');
-        if (hh === '14' && Number(mm) > 30) mm = '30';
-        timeEl.value = `${hh}:${mm}`;
-      }
-    }
-    ensureTimeValue();
-
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-
-      ensureTimeValue();
-
-      const dateISO  = dateEl.value || '';
-      const timeHHMM = timeEl.value || '';
-      const people   = Number(pplEl.value || 0);
-
-      if (!dateISO)  return alert('Please choose a date.');
-      if (!timeHHMM) return alert('Please choose a time.');
-      if (!people)   return alert('Enter number of people.');
-
-      try {
-        const a = await checkAvailability(dateISO, timeHHMM, people); // uses your JSONP function
-        if (!a || a.ok === false || a.canBook === false) {
-          const reasons = (a && (a.details?.reasons || a.reasons)) || [a?.error || 'Not available'];
-          alert(reasons.join('\n'));
-          return;
-        }
-        // Success -> build forms (your function reads #res_people itself)
-        if (typeof buildGuestForms === 'function') {
-          buildGuestForms();
-        } else {
-          // wait once for the app to finish initializing
-          await new Promise(resolve => {
-            document.addEventListener('app-ready', resolve, { once: true });
-          });
-          if (typeof buildGuestForms === 'function') buildGuestForms();
-          else console.warn('buildGuestForms() still not available.');
-        }
-      } catch (err) {
-        console.error(err);
-        alert('Could not check availability. Please try again.');
-      }
+  function checkAvailability(res) {
+    return new Promise((resolve, reject) => {
+      const callback = 'availability_' + crypto.randomUUID().replaceAll('-', '');
+      const script = document.createElement('script');
+      const url = new URL(CONFIG.availabilityEndpoint);
+      Object.entries({action: 'availability', date: res.date, time: res.time, people: String(res.people), callback}).forEach(([k, v]) => url.searchParams.set(k, v));
+      function cleanup() { clearTimeout(timer); script.remove(); delete window[callback]; }
+      const timer = setTimeout(() => { cleanup(); reject(new Error('Availability check timed out. Please try again.')); }, 10000);
+      window[callback] = result => {
+        cleanup();
+        if (!result || result.ok === false || result.canBook !== true) {
+          const reasons = result?.details?.reasons || result?.reasons || result?.error || 'This time is not available.';
+          reject(new Error(Array.isArray(reasons) ? reasons.join('\n') : String(reasons)));
+        } else resolve();
+      };
+      script.onerror = () => { cleanup(); reject(new Error('Could not check availability. Please try again.')); };
+      script.src = url.toString(); document.head.appendChild(script);
     });
-
-    return true;
   }
-
-  // Bind now; if DOM not yet ready for some reason, bind on DOMContentLoaded as a fallback
-  if (!bind()) document.addEventListener('DOMContentLoaded', bind, { once:true });
+  async function submitReservation(res) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch(CONFIG.endpoint, {
+        method: 'POST', headers: {'Content-Type': 'text/plain'},
+        body: JSON.stringify({action: 'create', reservation: res}), signal: controller.signal
+      });
+      const ack = await response.json();
+      if (response.ok && ack?.ok === true) return;
+      if (response.ok && ack?.ok === false) throw new Error('The server did not accept your booking. Your details are still here; check availability and try again.');
+      throw new Error('Unconfirmed response');
+    } catch (error) {
+      if (error.message.startsWith('The server did not accept')) throw error;
+      // A lost response can mean the server saved the booking. Never send a second automatic request.
+      throw new Error(`We could not confirm whether your booking was received. Your details are still here. Please contact the venue before submitting again, quoting reference ${res.id}.`);
+    } finally { clearTimeout(timer); }
+  }
+  function reset() {
+    $('res_name').value = ''; $('res_contact').value = ''; $('res_people').value = '1';
+    const today = localToday();
+    $('res_date').value = today <= CONFIG.startDate ? CONFIG.startDate : today <= CONFIG.endDate ? today : '';
+    $('res_hour').value = CONFIG.openingTime.slice(0, 2); updateMinutes();
+    $('res_minute').value = CONFIG.openingTime.slice(3);
+    $('guests').replaceChildren(); guestCards.length = 0; checkedSlot = ''; attempt = null;
+  }
+  $('res_date').min = CONFIG.startDate; $('res_date').max = CONFIG.endDate;
+  $('res_hour').replaceChildren(...[...new Set(slots.map(t => t.slice(0, 2)))].map(h => option(h)));
+  $('res_hour').addEventListener('change', updateMinutes);
+  $('btn-build').addEventListener('click', async () => {
+    if (busy) return;
+    const res = details(); const errors = validateDetails(res);
+    if (errors.length) return message(errors.join('\n'), true);
+    setBusy(true); message('Checking availability…');
+    try {
+      await checkAvailability(res); checkedSlot = slotKey(res); buildGuests(res.people);
+      message('Please enter each guest’s name and choose at least two courses.');
+    } catch (error) { checkedSlot = ''; message(error.message, true); }
+    finally { setBusy(false); }
+  });
+  $('btn-submit').addEventListener('click', async () => {
+    if (busy) return;
+    const res = {...details(), guests: collectGuests()};
+    const errors = [...validateDetails(res, true), ...validateGuests(res)];
+    if (slotKey(res) !== checkedSlot) errors.push('The booking date, time or party size changed. Click Next to check availability again.');
+    if (errors.length) return message(errors.join('\n'), true);
+    const fingerprint = JSON.stringify(res);
+    if (!attempt || attempt.fingerprint !== fingerprint) attempt = {fingerprint, id: crypto.randomUUID(), createdAt: new Date().toISOString()};
+    Object.assign(res, {id: attempt.id, createdAt: attempt.createdAt});
+    setBusy(true); message('Checking availability and submitting your booking…');
+    try {
+      await checkAvailability(res);
+      await submitReservation(res);
+      reset(); message(`Thank you! Your booking was received. Reference: ${res.id}`);
+    } catch (error) { message(error.message, true); }
+    finally { setBusy(false); }
+  });
+  reset(); setBusy(false);
 })();
+
 </script>
 </body>
 </html>
