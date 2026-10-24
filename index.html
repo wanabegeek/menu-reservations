@@ -218,6 +218,46 @@
       throw new Error(`We could not confirm whether your booking was received. Your details are still here. Please contact the venue before submitting again, quoting reference ${res.id}.`);
     } finally { clearTimeout(timer); }
   }
+  function confirmationText(res) {
+    const date = new Date(res.date + 'T12:00:00').toLocaleDateString('en-GB', {weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'});
+    return [
+      'Thank you — your booking has been received!',
+      '', "This booking is provisional. To finalise your booking a £10 deposit per person is required. This can be paid in person at Ale & Pate, or by card over the phone by calling 01383821599",
+      '', 'We look forward to welcoming you to Ale & Pate.',
+      'Please save or take a screenshot of these details for your records. No confirmation email has been sent.',
+      '', 'Booking reference: ' + res.id,
+      'Booking name: ' + res.reservationName,
+      'Date: ' + date, 'Time: ' + res.time, 'Guests: ' + res.people,
+      '', 'Menu choices:',
+      ...res.guests.map((g, i) => [(i + 1) + '. ' + g.name, 'Starter: ' + (g.starter || 'None'), 'Main: ' + (g.main || 'None'), 'Dessert: ' + (g.dessert || 'None'), ...(g.notes ? ['Dietary requirements: ' + g.notes] : [])].join('\n')),
+      '', 'If you need to change your booking, please contact Ale & Pate and quote your booking reference.'
+    ].join('\n');
+  }
+  function showConfirmation(res) {
+    const text = confirmationText(res);
+    message(text);
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('aria-labelledby', 'booking-confirmation-title');
+    dialog.style.cssText = 'max-width:600px;width:calc(100% - 48px);max-height:85vh;box-sizing:border-box;border:1px solid #ddd;border-radius:12px;padding:24px;overflow:auto;color:#17202a;background:white';
+    const heading = document.createElement('h2');
+    heading.id = 'booking-confirmation-title'; heading.textContent = 'Provisional booking received';
+    const summary = document.createElement('div');
+    summary.style.whiteSpace = 'pre-wrap'; summary.textContent = text;
+    const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save booking details';
+    save.addEventListener('click', () => {
+      const url = URL.createObjectURL(new Blob([text], {type: 'text/plain;charset=utf-8'}));
+      const link = document.createElement('a'); link.href = url; link.download = 'ale-and-pate-booking-' + res.id + '.txt';
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    });
+    const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Close';
+    close.style.marginLeft = '12px'; close.addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => dialog.remove());
+    const actions = document.createElement('p'); actions.append(save, close);
+    dialog.append(heading, summary, actions); document.body.appendChild(dialog);
+    if (typeof dialog.showModal === 'function') { dialog.showModal(); save.focus(); }
+    else { dialog.remove(); alert(text); }
+  }
   function reset() {
     $('res_name').value = ''; $('res_contact').value = ''; $('res_people').value = '1';
     const today = localToday();
@@ -253,7 +293,7 @@
     try {
       await checkAvailability(res);
       await submitReservation(res);
-      reset(); message(`Thank you! Your booking was received. Reference: ${res.id}`);
+      reset(); showConfirmation(res);
     } catch (error) { message(error.message, true); }
     finally { setBusy(false); }
   });
