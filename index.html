@@ -243,18 +243,30 @@
     heading.id = 'booking-confirmation-title'; heading.textContent = 'Provisional booking received';
     const summary = document.createElement('div');
     summary.style.whiteSpace = 'pre-wrap'; summary.textContent = text;
-    const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save booking details';
+    const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save booking as PDF';
+    const saveHelp = document.createElement('p');
+    saveHelp.textContent = 'Choose Save as PDF in the print window, then select Save to choose the file name and where to save your booking. On a phone, use the print or share options to save a PDF.';
     save.addEventListener('click', () => {
-      const url = URL.createObjectURL(new Blob([text], {type: 'text/plain;charset=utf-8'}));
-      const link = document.createElement('a'); link.href = url; link.download = 'ale-and-pate-booking-' + res.id + '.txt';
-      document.body.appendChild(link); link.click(); link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      const receipt = window.open('', '_blank');
+      if (!receipt) {
+        saveHelp.textContent = 'Please allow pop-ups for this site, then select Save booking as PDF again. Your booking is already received.';
+        return;
+      }
+      const doc = receipt.document;
+      doc.open();
+      doc.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Booking receipt</title><style>@page{size:A4;margin:18mm}body{font:12pt/1.5 Arial,sans-serif;color:#17202a;margin:24px;overflow-wrap:anywhere}h1{font-size:22pt}pre{font:inherit;white-space:pre-wrap}button{padding:12px;cursor:pointer}@media print{.controls{display:none}body{margin:0}}</style></head><body><div class="controls"><p>Choose Save as PDF, then Save to choose a file name and location.</p><button type="button">Save as PDF / Print</button></div><h1>Ale &amp; Pate — Provisional booking</h1><pre></pre></body></html>');
+      doc.close();
+      doc.title = 'Ale and Pate booking ' + res.id;
+      doc.querySelector('pre').textContent = text;
+      doc.querySelector('button').addEventListener('click', () => receipt.print());
+      receipt.focus();
+      receipt.print();
     });
     const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Close';
     close.style.marginLeft = '12px'; close.addEventListener('click', () => dialog.close());
     dialog.addEventListener('close', () => dialog.remove());
     const actions = document.createElement('p'); actions.append(save, close);
-    dialog.append(heading, summary, actions); document.body.appendChild(dialog);
+    dialog.append(heading, summary, saveHelp, actions); document.body.appendChild(dialog);
     if (typeof dialog.showModal === 'function') { dialog.showModal(); save.focus(); }
     else { dialog.remove(); alert(text); }
   }
