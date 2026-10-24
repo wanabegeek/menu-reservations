@@ -233,6 +233,59 @@
       '', 'If you need to change your booking, please contact Ale & Pate and quote your booking reference.'
     ].join('\n');
   }
+  function bookingPdf(text) {
+    // Render text with the browser's fonts so names, accents and the pound sign are retained.
+    const canvas = document.createElement('canvas'); canvas.width = 1240; canvas.height = 1754;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('PDF rendering is not available in this browser.');
+    ctx.font = '24px Arial, sans-serif';
+    const lines = [];
+    for (const paragraph of ('Ale & Pate — Provisional booking\n\n' + text).split('\n')) {
+      let line = '';
+      for (const word of paragraph.split(' ')) {
+        const candidate = line ? line + ' ' + word : word;
+        if (ctx.measureText(candidate).width <= 1120) { line = candidate; continue; }
+        if (line) lines.push(line);
+        line = '';
+        for (const char of word) {
+          if (ctx.measureText(line + char).width > 1120) { lines.push(line); line = ''; }
+          line += char;
+        }
+      }
+      lines.push(line);
+    }
+    const images = [];
+    for (let start = 0; start < lines.length; start += 46) {
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 1240, 1754);
+      ctx.fillStyle = '#17202a'; ctx.font = '24px Arial, sans-serif';
+      lines.slice(start, start + 46).forEach((line, i) => ctx.fillText(line, 60, 80 + i * 34));
+      ctx.font = '20px Arial, sans-serif';
+      ctx.fillText('Page ' + (images.length + 1) + ' of ' + Math.ceil(lines.length / 46), 60, 1700);
+      images.push(Uint8Array.from(atob(canvas.toDataURL('image/jpeg', 0.92).split(',')[1]), c => c.charCodeAt(0)));
+    }
+    const encoder = new TextEncoder(); const parts = []; const offsets = [0]; let size = 0;
+    const add = value => { const bytes = typeof value === 'string' ? encoder.encode(value) : value; parts.push(bytes); size += bytes.length; };
+    const object = (id, content, bytes) => {
+      offsets[id] = size; add(id + ' 0 obj\n' + content);
+      if (bytes) { add('\nstream\n'); add(bytes); add('\nendstream'); }
+      add('\nendobj\n');
+    };
+    add('%PDF-1.4\n');
+    object(1, '<< /Type /Catalog /Pages 2 0 R >>');
+    object(2, '<< /Type /Pages /Count ' + images.length + ' /Kids [' + images.map((_, i) => (5 + i * 3) + ' 0 R').join(' ') + '] >>');
+    images.forEach((image, i) => {
+      const id = 3 + i * 3;
+      object(id, '<< /Type /XObject /Subtype /Image /Width 1240 /Height 1754 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ' + image.length + ' >>', image);
+      const drawing = encoder.encode('q 595.28 0 0 841.89 0 0 cm /Receipt Do Q');
+      object(id + 1, '<< /Length ' + drawing.length + ' >>', drawing);
+      object(id + 2, '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Receipt ' + id + ' 0 R >> >> /Contents ' + (id + 1) + ' 0 R >>');
+    });
+    const xref = size;
+    add('xref\n0 ' + offsets.length + '\n0000000000 65535 f \n');
+    offsets.slice(1).forEach(offset => add(String(offset).padStart(10, '0') + ' 00000 n \n'));
+    add('trailer\n<< /Size ' + offsets.length + ' /Root 1 0 R >>\nstartxref\n' + xref + '\n%%EOF');
+    return new Blob(parts, {type: 'application/pdf'});
+  }
   function showConfirmation(res) {
     const text = confirmationText(res);
     message(text);
@@ -245,22 +298,31 @@
     summary.style.whiteSpace = 'pre-wrap'; summary.textContent = text;
     const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save booking as PDF';
     const saveHelp = document.createElement('p');
-    saveHelp.textContent = 'Choose Save as PDF in the print window, then select Save to choose the file name and where to save your booking. On a phone, use the print or share options to save a PDF.';
-    save.addEventListener('click', () => {
-      const receipt = window.open('', '_blank');
-      if (!receipt) {
-        saveHelp.textContent = 'Please allow pop-ups for this site, then select Save booking as PDF again. Your booking is already received.';
-        return;
-      }
-      const doc = receipt.document;
-      doc.open();
-      doc.write('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Booking receipt</title><style>@page{size:A4;margin:18mm}body{font:12pt/1.5 Arial,sans-serif;color:#17202a;margin:24px;overflow-wrap:anywhere}h1{font-size:22pt}pre{font:inherit;white-space:pre-wrap}button{padding:12px;cursor:pointer}@media print{.controls{display:none}body{margin:0}}</style></head><body><div class="controls"><p>Choose Save as PDF, then Save to choose a file name and location.</p><button type="button">Save as PDF / Print</button></div><h1>Ale &amp; Pate — Provisional booking</h1><pre></pre></body></html>');
-      doc.close();
-      doc.title = 'Ale and Pate booking ' + res.id;
-      doc.querySelector('pre').textContent = text;
-      doc.querySelector('button').addEventListener('click', () => receipt.print());
-      receipt.focus();
-      receipt.print();
+    saveHelp.textContent = 'Save a PDF copy of your booking. If your browser does not offer a save-location window, the PDF will go to your downloads.';
+    saveHelp.setAttribute('role', 'status');
+    save.addEventListener('click', async () => {
+      save.disabled = true;
+      try {
+        const filename = 'ale-and-pate-booking-' + res.id + '.pdf';
+        let handle;
+        if (typeof window.showSaveFilePicker === 'function') {
+          try { handle = await window.showSaveFilePicker({suggestedName: filename, types: [{description: 'PDF document', accept: {'application/pdf': ['.pdf']}}]}); }
+          catch (error) { if (error.name === 'AbortError') return; }
+        }
+        const pdf = bookingPdf(text);
+        if (handle) {
+          const writable = await handle.createWritable(); await writable.write(pdf); await writable.close();
+          saveHelp.textContent = 'Your booking PDF has been saved.';
+        } else {
+          const url = URL.createObjectURL(pdf);
+          const link = document.createElement('a'); link.href = url; link.download = filename;
+          document.body.appendChild(link); link.click(); link.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 60000);
+          saveHelp.textContent = 'Your PDF download has started. Check your browser downloads for the booking file.';
+        }
+      } catch (error) {
+        saveHelp.textContent = 'The PDF could not be saved. Please try again or take a screenshot of your booking details. Your booking has already been received.';
+      } finally { save.disabled = false; }
     });
     const close = document.createElement('button'); close.type = 'button'; close.textContent = 'Close';
     close.style.marginLeft = '12px'; close.addEventListener('click', () => dialog.close());
